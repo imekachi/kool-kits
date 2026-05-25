@@ -1,0 +1,30 @@
+.playwright-mcp
+.DS_Store
+Thumbs.db
+.npmrc
+
+# Dependencies
+node_modules
+
+# Build / packaging
+dist/
+
+# env
+*.local
+.npmrc
+
+# IDE
+.idea/*
+!.idea/tailwindcss.xml
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# AI tools
+.mcp.json
+.claude/settings.json
+.cursor/mcp.json
+# Added by code-review-graph
+.code-review-graph/
