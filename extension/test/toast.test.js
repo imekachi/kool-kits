@@ -157,3 +157,57 @@ test('toast rendering ignores a page-owned same-id host', async () => {
   assert.equal(extensionToast.textContent, 'Copied Current URL')
   assert.match(extensionToast.className, /\btoast--success\b/)
 })
+
+test('success toast uses cool green styling with a border', async () => {
+  const harness = await createToastHarness()
+
+  harness.runToastScript()
+  harness.showToast({ text: 'Copied Current URL', tone: 'success' })
+
+  const extensionHost = harness.appendedHosts.at(-1)
+  const style = extensionHost.shadowRoot.children.find(
+    (child) => child.tagName === 'style',
+  )
+
+  assert.match(
+    style.textContent,
+    /border:\s*1px solid rgba\(74, 222, 128, 0\.55\)/,
+  )
+  assert.match(style.textContent, /background:\s*rgba\(6, 78, 59, 0\.94\)/)
+  assert.match(
+    style.textContent,
+    /box-shadow:\s*0 14px 40px rgba\(5, 46, 22, 0\.32\)/,
+  )
+})
+
+test('toast sizes to its text with balanced horizontal padding', async () => {
+  const harness = await createToastHarness()
+
+  harness.runToastScript()
+  harness.showToast({ text: 'Copied Current URL', tone: 'success' })
+
+  const extensionHost = harness.appendedHosts.at(-1)
+  const style = extensionHost.shadowRoot.children.find(
+    (child) => child.tagName === 'style',
+  )
+
+  assert.doesNotMatch(style.textContent, /min-width:/)
+  assert.match(style.textContent, /padding:\s*12px 14px/)
+  assert.match(style.textContent, /width:\s*max-content/)
+  assert.match(style.textContent, /white-space:\s*nowrap/)
+})
+
+test('toast animation moves vertically without horizontal slide', async () => {
+  const harness = await createToastHarness()
+
+  harness.runToastScript()
+  harness.showToast({ text: 'Copied Current URL', tone: 'success' })
+
+  const extensionHost = harness.appendedHosts.at(-1)
+  const style = extensionHost.shadowRoot.children.find(
+    (child) => child.tagName === 'style',
+  )
+
+  assert.doesNotMatch(style.textContent, /translate3d\(12px,/)
+  assert.match(style.textContent, /translate3d\(0, -8px, 0\) scale\(0\.98\)/)
+})

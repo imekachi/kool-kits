@@ -75,22 +75,26 @@
     }
 
     .toast {
-      min-width: 172px;
+      width: max-content;
       border-radius: 12px;
+      border: 1px solid rgba(74, 222, 128, 0.55);
       padding: 12px 14px;
       color: #ffffff;
-      background: rgba(20, 20, 20, 0.92);
-      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+      background: rgba(6, 78, 59, 0.94);
+      box-shadow: 0 14px 40px rgba(5, 46, 22, 0.32);
       font-size: 13px;
       font-weight: 600;
       line-height: 1.3;
       letter-spacing: 0.01em;
+      white-space: nowrap;
       animation: kool-kits-toast-enter 180ms ease-out;
       backdrop-filter: blur(12px);
     }
 
     .toast--error {
+      border-color: rgba(252, 165, 165, 0.6);
       background: rgba(160, 42, 42, 0.94);
+      box-shadow: 0 14px 40px rgba(69, 10, 10, 0.3);
     }
 
     .toast--leaving {
@@ -100,7 +104,7 @@
     @keyframes kool-kits-toast-enter {
       from {
         opacity: 0;
-        transform: translate3d(12px, -8px, 0) scale(0.98);
+        transform: translate3d(0, -8px, 0) scale(0.98);
       }
 
       to {
@@ -117,7 +121,7 @@
 
       to {
         opacity: 0;
-        transform: translate3d(12px, -8px, 0) scale(0.98);
+        transform: translate3d(0, -8px, 0) scale(0.98);
       }
     }
   `
