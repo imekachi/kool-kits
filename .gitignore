@@ -23,6 +23,8 @@ dist/
 !.vscode/extensions.json
 
 # AI tools
+docs/plans/*
+docs/superpowers/*
 .mcp.json
 .claude/settings.json
 .cursor/mcp.json
