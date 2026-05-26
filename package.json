@@ -9,7 +9,8 @@
   "scripts": {
     "compress": "bash scripts/compress.sh",
     "format": "prettier --write",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "node --test 'extension/test/**/*.test.js'"
   },
   "devDependencies": {
     "husky": "9.1.7",
