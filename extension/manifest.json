@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Kool Kits",
+  "description": "Productivity shortcuts for Chrome.",
+  "version": "0.1.0",
+  "icons": {
+    "16": "icons/icon16.png",
+    "24": "icons/icon24.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Kool Kits",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "24": "icons/icon24.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "commands": {
+    "copy-current-url": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+C",
+        "mac": "Command+Shift+C"
+      },
+      "description": "Copy current URL"
+    }
+  },
+  "permissions": ["tabs", "scripting", "offscreen", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"]
+}
