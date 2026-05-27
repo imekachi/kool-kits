@@ -2,29 +2,77 @@
 
 ## Goal
 
-Move through tabs by activation history instead of tab-strip position.
+Move through Chrome tabs by recent activation history instead of tab-strip position, with an Arc-inspired visual switcher that makes the current selection clear while the modifier key is held.
 
 ## Behavior
 
-`Control+Tab` moves backward through tab activation history, and `Shift+Control+Tab` moves forward. Holding `Control` shows a horizontal switcher with thumbnails and tab titles. Pressing `Tab` while holding `Control` cycles through the switcher items, wrapping after the last item. Releasing `Control` activates the selected tab.
+The switcher keeps a separate recent-tab history for each Chrome window. When the user starts switching in a focused window, the switcher shows only that window's recent tabs. Switching to another Chrome window changes the relevant history context to that window.
 
-The switcher shows a bounded list of recent tabs. The list is ordered by recent activation rather than by the tab strip. The currently active tab anchors the interaction, and the first cycle should move to the most recent previously active tab.
+The active tab is always the first item in its window's history. The switcher shows a bounded list of up to six recent tabs total, including the active tab. New tabs enter the front of the history as soon as Chrome activates them.
 
-## Design Constraints
+Starting the switcher selects the second item, which is the most recently active previous tab. While the modifier key remains held, pressing `Tab` moves through the visible recent list and `Shift+Tab` moves in the opposite direction. Cycling wraps at the ends. The user can cycle back to the first item, which is already active.
 
-- Activation history should be independent of tab-strip order.
-- The switcher UI should make the selected tab visible while the modifier key is held.
-- Final tab activation should happen when the modifier key is released.
-- The implementation must account for Chrome pages, discarded tabs, windows, and tab groups.
-- The shortcut model must be verified against Chrome extension command limitations before implementation.
+Releasing the modifier key always commits the current selection. If the selected item is the already-active tab, releasing the modifier only hides the switcher. The design intentionally does not include an `Escape` cancel path.
+
+## Shortcut Model
+
+The feature should be exposed as a normal Chrome extension command so users can remap it through Chrome's extension shortcut settings. The feature should not require any specific keybinding to work.
+
+Chrome's normal shortcut UI does not allow direct `Ctrl+Tab` assignment. The product should include an optional setup tip for advanced users who want to bind the command to `Ctrl+Tab` through Chrome's developer-private shortcut workaround. This is documented as optional setup, not as a runtime dependency, because keeping the command remappable lets users choose any shortcut they prefer.
+
+## Architecture
+
+The Manifest V3 background service worker owns recent-tab state. It updates per-window histories from Chrome tab and window lifecycle events, deduplicates entries by tab ID, keeps the active tab first, and removes stale entries as Chrome state changes.
+
+The switcher UI should be extension-owned rather than injected into the active page. This allows the switcher to appear consistently across ordinary websites, Chrome pages, discarded tabs, and pages where content-script injection is restricted. The switcher receives the focused window's recent list from the background worker, manages selection while the modifier key is held, and asks the background worker to activate the selected tab on release.
+
+When a tab closes, its tab ID is removed from its window's history. When a window closes, that window's history is removed. Before rendering, the switcher should reconcile history with current Chrome tab state and drop entries that no longer exist. This prevents closed or stale tabs from appearing.
+
+## UI And Visual Style
+
+The switcher should feel like a lightweight browser overlay: centered, dark, rounded, and horizontal. It should show up to six tab cards. Each card contains a stable preview area plus favicon and truncated title. The selected card must be visually obvious.
+
+The visual language should build from the Kool Kits logo palette:
+
+- Deep navy: `#1d1b3a`
+- Warm off-white: `#fffaf0`
+- Yellow accent: `#ffd23f`
+
+The selected state should use the yellow accent or a compatible derived tone rather than assuming the browser's theme color. The UI may expand the palette with darker and lighter tones when needed, while staying aligned with the logo.
+
+Screenshots are opportunistic. If the extension has a cached screenshot from when a tab was visible, it can use that image. If a screenshot is unavailable or cannot be captured, the card renders a black preview fallback in the same thumbnail area. Favicon, title, and domain metadata should still be shown when Chrome exposes them.
+
+Grouped tabs remain in the same recent-history order as ordinary tabs. If group metadata is available, the UI may show a subtle group cue, but tab groups should not change ordering or selection behavior.
+
+## Error Handling
+
+The primary action is selecting a tab. Preview failures must not block selection. Missing screenshots use the black fallback, and missing metadata should degrade to the best available tab label.
+
+If the selected tab no longer exists when the modifier key is released, the switcher should hide without activating a stale tab. If the recent list has only the active tab, the command should do nothing visible or close immediately.
 
 ## Acceptance Criteria
 
-- Cycling order follows tab activation history.
-- `Control+Tab` and `Shift+Control+Tab` move in opposite directions through that history.
-- Cycling wraps after the last visible switcher item.
-- The switcher shows the current selection while the modifier key is held.
-- Releasing the modifier key activates the selected tab.
+- Recent-tab history is tracked independently per Chrome window.
+- The active tab is always first in its window's history.
+- The visible switcher list contains up to six tabs total, including the active tab.
+- Closed tabs are removed from history and never appear in the switcher.
+- Closed windows have their histories removed.
+- Starting the switcher selects the most recently active previous tab when one exists.
+- `Tab` and `Shift+Tab` move in opposite directions through the visible recent list.
+- Cycling wraps after the first or last visible item.
+- Releasing the modifier key activates the selected tab, unless it is already active.
+- The switcher appears as extension-owned UI instead of relying on page injection.
+- Tabs without screenshots show a black preview fallback.
+- Chrome pages, discarded tabs, tab groups, and pages with unavailable previews are handled without blocking switching.
+- The extension command remains remappable, with optional documentation for users who want to bind it to `Ctrl+Tab`.
+
+## Rationale
+
+Per-window history avoids surprising focus jumps across Chrome windows and matches the expectation that each window has its own recent-tab context. Including the active tab as the first item makes reverse cycling intuitive and lets the user return to the current tab before release.
+
+An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Opportunistic screenshots keep the UI rich when possible without depending on thumbnail access Chrome does not consistently provide.
+
+Keeping `Ctrl+Tab` as an optional setup tip preserves the desired workflow for advanced users while keeping the extension command valid and remappable for normal Chrome installs.
 
 ## Out Of Scope
 
