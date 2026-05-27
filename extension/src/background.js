@@ -299,8 +299,8 @@ function getDefaultFaviconUrl(pageUrl) {
 }
 
 function getSwitcherBounds(sourceWindow) {
-  const width = Math.min(980, Math.max(520, sourceWindow.width ?? 980))
-  const height = 220
+  const width = Math.min(1160, Math.max(520, sourceWindow.width ?? 1160))
+  const height = 230
   const left = Math.round(
     (sourceWindow.left ?? 0) + ((sourceWindow.width ?? width) - width) / 2,
   )
