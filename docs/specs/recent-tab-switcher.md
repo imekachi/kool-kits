@@ -28,6 +28,12 @@ The switcher UI should be extension-owned rather than injected into the active p
 
 When a tab closes, its tab ID is removed from its window's history. When a window closes, that window's history is removed. Before rendering, the switcher should reconcile history with current Chrome tab state and drop entries that no longer exist. This prevents closed or stale tabs from appearing.
 
+The background worker also owns screenshot thumbnail state. Thumbnail entries are tied to the same tab identity and recent-history lifetime as the switcher list, so removing a tab from history also removes its thumbnail. The switcher receives an optional thumbnail URL with each tab item and renders the existing preview fallback when no thumbnail is available.
+
+Screenshot capture follows a hybrid refresh model. The extension captures a thumbnail after a tab becomes active so recently visited tabs have previews ready before the switcher opens. When the switcher opens, it refreshes the currently visible source tab before building switcher state, then uses cached thumbnails for the remaining recent tabs. This keeps the current tab fresh without making switcher open depend on recapturing every tab.
+
+Navigation invalidates a tab's previous thumbnail because an old page image should not represent a new page. A later successful capture can refill the thumbnail while the same tab remains in recent history.
+
 ## UI And Visual Style
 
 The switcher should feel like a lightweight browser overlay: centered, dark, rounded, and horizontal. It should show up to six tab cards. Each card contains a stable preview area plus favicon and truncated title. The selected card must be visually obvious.
@@ -40,13 +46,15 @@ The visual language should build from the Kool Kits logo palette:
 
 The selected state should use the yellow accent or a compatible derived tone rather than assuming the browser's theme color. The UI may expand the palette with darker and lighter tones when needed, while staying aligned with the logo.
 
-Screenshots are opportunistic. If the extension has a cached screenshot from when a tab was visible, it can use that image. If a screenshot is unavailable or cannot be captured, the card renders a black preview fallback in the same thumbnail area. Favicon, title, and domain metadata should still be shown when Chrome exposes them.
+Screenshot previews are required for launch. The extension should capture and cache a preview when a tab is visible, keep that preview only while the tab remains part of recent history, then render that image in the card's thumbnail area when available. If a screenshot is unavailable, stale, or cannot be captured for a given tab, the card renders a black preview fallback in the same thumbnail area. Favicon, title, and domain metadata should still be shown when Chrome exposes them.
 
 Grouped tabs remain in the same recent-history order as ordinary tabs. If group metadata is available, the UI may show a subtle group cue, but tab groups should not change ordering or selection behavior.
 
 ## Error Handling
 
-The primary action is selecting a tab. Preview failures must not block selection. Missing screenshots use the black fallback, and missing metadata should degrade to the best available tab label.
+The primary action is selecting a tab. Preview capture or rendering failures must not block selection. Missing screenshots use the black fallback, and missing metadata should degrade to the best available tab label.
+
+Thumbnail storage should be session-scoped rather than persisted across browser or extension restarts. This avoids retaining page images longer than the recent-tab history that makes them useful.
 
 If the selected tab no longer exists when the modifier key is released, the switcher should hide without activating a stale tab. If the recent list has only the active tab, the command should do nothing visible or close immediately.
 
@@ -62,7 +70,12 @@ If the selected tab no longer exists when the modifier key is released, the swit
 - Cycling wraps after the first or last visible item.
 - Releasing the modifier key activates the selected tab, unless it is already active.
 - The switcher appears as extension-owned UI instead of relying on page injection.
+- Screenshot previews are captured and shown for eligible tabs before launch.
 - Tabs without screenshots show a black preview fallback.
+- The current visible tab is refreshed when the switcher opens.
+- Recently activated tabs keep thumbnails while their history entries remain alive.
+- Navigating a tab invalidates its previous thumbnail until a fresh capture succeeds.
+- Removing a tab or window from recent history removes its thumbnail.
 - Chrome pages, discarded tabs, tab groups, and pages with unavailable previews are handled without blocking switching.
 - The extension command remains remappable, with optional documentation for users who want to bind it to `Ctrl+Tab`.
 
@@ -70,7 +83,7 @@ If the selected tab no longer exists when the modifier key is released, the swit
 
 Per-window history avoids surprising focus jumps across Chrome windows and matches the expectation that each window has its own recent-tab context. Including the active tab as the first item makes reverse cycling intuitive and lets the user return to the current tab before release.
 
-An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Opportunistic screenshots keep the UI rich when possible without depending on thumbnail access Chrome does not consistently provide.
+An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Screenshot previews are part of the launch experience because the switcher needs visual recognition, while the black fallback keeps switching reliable on pages where Chrome cannot provide a usable thumbnail. Tying thumbnails to recent-history lifetime keeps the behavior predictable and avoids storing page images after they stop serving the switcher.
 
 Keeping `Ctrl+Tab` as an optional setup tip preserves the desired workflow for advanced users while keeping the extension command valid and remappable for normal Chrome installs.
 
