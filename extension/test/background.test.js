@@ -658,6 +658,123 @@ describe('background recent tab switcher orchestration', () => {
       [2, 3, 4, 5, 6, 7],
     )
   })
+
+  it('invalidates a thumbnail when its tab starts navigating', async () => {
+    const harness = await createBackgroundHarness({
+      initialRecentThumbnails: [
+        {
+          thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,oldPage' }],
+          windowId: 10,
+        },
+      ],
+    })
+
+    harness.invokeTabUpdated(2, { status: 'loading' }, { id: 2, windowId: 10 })
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [])
+  })
+
+  it('does not save a capture if the same tab navigates while capture is in flight', async () => {
+    const capture = createDeferred()
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 2, windowId: 10 },
+      captureVisibleTabResult: capture.promise,
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    harness.invokeTabUpdated(2, { status: 'loading' }, { id: 2, windowId: 10 })
+    capture.resolve('data:image/jpeg;base64,cmF3')
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [])
+  })
+
+  it('keeps a thumbnail when a tab update does not represent navigation', async () => {
+    const harness = await createBackgroundHarness({
+      initialRecentThumbnails: [
+        {
+          thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' }],
+          windowId: 10,
+        },
+      ],
+    })
+
+    harness.invokeTabUpdated(2, { title: 'Renamed' }, { id: 2, windowId: 10 })
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' }],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('removes thumbnails when tabs and windows close', async () => {
+    const harness = await createBackgroundHarness({
+      initialRecentThumbnails: [
+        {
+          thumbnails: [
+            { tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,one' },
+            { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,two' },
+          ],
+          windowId: 10,
+        },
+        {
+          thumbnails: [{ tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,three' }],
+          windowId: 20,
+        },
+      ],
+    })
+
+    harness.invokeTabRemoved(2, { isWindowClosing: false, windowId: 10 })
+    harness.invokeWindowRemoved(20)
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,one' }],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('removes thumbnails for tabs dropped during source-window reconciliation', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 1, windowId: 10 },
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+      initialRecentThumbnails: [
+        {
+          thumbnails: [
+            { tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,one' },
+            { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,two' },
+          ],
+          windowId: 10,
+        },
+      ],
+      lastFocusedWindow: {
+        ...openableSwitcherWindow(),
+        tabs: [openableSwitcherWindow().tabs[0]],
+      },
+    })
+
+    harness.invokeRecentTabSwitcherCommand()
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        windowId: 10,
+      },
+    ])
+  })
 })
 
 function openableSwitcherWindow() {
@@ -711,6 +828,7 @@ async function createBackgroundHarness({
   const commandListeners = []
   const tabsActivatedListeners = []
   const tabsRemovedListeners = []
+  const tabsUpdatedListeners = []
   const windowsRemovedListeners = []
   const runtimeMessageListeners = []
   const calls = {
@@ -844,6 +962,11 @@ async function createBackgroundHarness({
           tabsRemovedListeners.push(listener)
         },
       },
+      onUpdated: {
+        addListener(listener) {
+          tabsUpdatedListeners.push(listener)
+        },
+      },
       captureVisibleTab(windowId, options) {
         events.push('tabs.captureVisibleTab')
         calls.tabsCaptureVisibleTab.push({ options, windowId })
@@ -939,6 +1062,11 @@ async function createBackgroundHarness({
     invokeTabRemoved(tabId, removeInfo) {
       for (const listener of tabsRemovedListeners) {
         listener(tabId, removeInfo)
+      }
+    },
+    invokeTabUpdated(tabId, changeInfo, tab) {
+      for (const listener of tabsUpdatedListeners) {
+        listener(tabId, changeInfo, tab)
       }
     },
     invokeWindowRemoved(windowId) {

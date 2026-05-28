@@ -57,6 +57,13 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   void removeClosedTab({ tabId, windowId: removeInfo.windowId })
 })
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' || typeof changeInfo.url === 'string') {
+    bumpTabNavigationGeneration({ tabId, windowId: tab.windowId })
+    void removeTabThumbnail({ tabId, windowId: tab.windowId })
+  }
+})
+
 chrome.windows.onRemoved.addListener((windowId) => {
   if (switcherSession?.switcherWindowId === windowId) {
     switcherSession = undefined
@@ -172,12 +179,14 @@ async function removeClosedTab({ tabId, windowId }) {
   const recentTabHistory = await getRecentTabHistory()
   recentTabHistory.removeTab({ tabId, windowId })
   await persistRecentTabHistory()
+  await removeTabThumbnail({ tabId, windowId })
 }
 
 async function removeClosedWindow(windowId) {
   const recentTabHistory = await getRecentTabHistory()
   recentTabHistory.removeWindow(windowId)
   await persistRecentTabHistory()
+  await removeWindowThumbnails(windowId)
 }
 
 async function showOrAdvanceRecentTabSwitcher(direction) {
@@ -301,6 +310,18 @@ async function captureVisibleTabThumbnail({ tabId, windowId }) {
   } catch {
     // Capture availability varies by page, tab state, and browser permissions.
   }
+}
+
+async function removeTabThumbnail({ tabId, windowId }) {
+  const recentTabThumbnails = await getRecentTabThumbnails()
+  recentTabThumbnails.removeTab({ tabId, windowId })
+  await persistRecentTabThumbnails()
+}
+
+async function removeWindowThumbnails(windowId) {
+  const recentTabThumbnails = await getRecentTabThumbnails()
+  recentTabThumbnails.removeWindow(windowId)
+  await persistRecentTabThumbnails()
 }
 
 async function checkIsStillActiveTab({ tabId, windowId }) {
@@ -529,11 +550,18 @@ async function reconcileSourceWindow(sourceWindow) {
   const tabIds = (sourceWindow.tabs ?? [])
     .map((tab) => tab.id)
     .filter(Number.isInteger)
-  recentTabHistory.reconcileWindow({
+  const remainingTabIds = recentTabHistory.reconcileWindow({
     existingTabIds: tabIds,
     windowId: sourceWindow.id,
   })
   await persistRecentTabHistory()
+
+  const recentTabThumbnails = await getRecentTabThumbnails()
+  recentTabThumbnails.reconcileWindow({
+    existingTabIds: remainingTabIds,
+    windowId: sourceWindow.id,
+  })
+  await persistRecentTabThumbnails()
 }
 
 function getSwitcherTab({ tab, thumbnailUrl }) {
