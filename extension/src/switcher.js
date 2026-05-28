@@ -113,6 +113,14 @@ function createTabCard(tab, index) {
   const preview = document.createElement('div')
   preview.className = 'switcher-preview'
 
+  if (tab.thumbnailUrl) {
+    const thumbnail = document.createElement('img')
+    thumbnail.alt = ''
+    thumbnail.className = 'switcher-thumbnail'
+    thumbnail.src = tab.thumbnailUrl
+    preview.append(thumbnail)
+  }
+
   const label = document.createElement('div')
   label.className = 'switcher-label'
 
