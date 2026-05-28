@@ -20,6 +20,28 @@ The feature should be exposed as a normal Chrome extension command so users can 
 
 Chrome's normal shortcut UI does not allow direct `Ctrl+Tab` assignment. The product should include an optional setup tip for advanced users who want to bind the command to `Ctrl+Tab` through Chrome's developer-private shortcut workaround. This is documented as optional setup, not as a runtime dependency, because keeping the command remappable lets users choose any shortcut they prefer.
 
+The optional setup tip should tell users to copy the loaded Kool Kits extension ID from `chrome://extensions`, open `chrome://extensions/shortcuts`, open DevTools for that page, and run Chrome's private shortcut updater for the `recent-tab-switcher` command:
+
+```js
+chrome.developerPrivate.updateExtensionCommand({
+  extensionId: "PASTE_KOOL_KITS_EXTENSION_ID",
+  commandName: "recent-tab-switcher",
+  keybinding: "Ctrl+Tab"
+});
+```
+
+Reverse cycling uses the same private updater:
+
+```js
+chrome.developerPrivate.updateExtensionCommand({
+  extensionId: "PASTE_KOOL_KITS_EXTENSION_ID",
+  commandName: "recent-tab-switcher-previous",
+  keybinding: "Ctrl+Shift+Tab"
+});
+```
+
+This workaround is intentionally documented as unsupported Chrome internals because it may need to be repeated after reinstalling the extension, changing Chrome profiles, or other events that change the extension ID or shortcut state.
+
 ## Architecture
 
 The Manifest V3 background service worker owns recent-tab state. It updates per-window histories from Chrome tab and window lifecycle events, deduplicates entries by tab ID, keeps the active tab first, and removes stale entries as Chrome state changes.
