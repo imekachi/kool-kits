@@ -20,7 +20,9 @@ describe('thumbnail image preparation', () => {
   })
 
   it('rejects non-capture values', async () => {
-    const prepared = await prepareThumbnailImage('https://example.com/image.jpg')
+    const prepared = await prepareThumbnailImage(
+      'https://example.com/image.jpg',
+    )
 
     assert.equal(prepared, '')
   })
@@ -58,9 +60,12 @@ function createOffscreenCanvas({ drawCalls = [], size }) {
     convertToBlob(options) {
       assert.deepEqual(options, { quality: 0.45, type: 'image/jpeg' })
       return Promise.resolve(
-        new Blob([Uint8Array.from({ length: size }, (_value, index) => index + 1)], {
-          type: 'image/jpeg',
-        }),
+        new Blob(
+          [Uint8Array.from({ length: size }, (_value, index) => index + 1)],
+          {
+            type: 'image/jpeg',
+          },
+        ),
       )
     }
   }

@@ -3,7 +3,10 @@ const MAX_THUMBNAIL_HEIGHT = 216
 const MAX_THUMBNAIL_BYTES = 120_000
 const THUMBNAIL_QUALITY = 0.45
 
-export async function prepareThumbnailImage(capturedDataUrl, dependencies = {}) {
+export async function prepareThumbnailImage(
+  capturedDataUrl,
+  dependencies = {},
+) {
   if (!checkIsCaptureDataUrl(capturedDataUrl)) {
     return ''
   }

@@ -663,7 +663,9 @@ describe('background recent tab switcher orchestration', () => {
     const harness = await createBackgroundHarness({
       initialRecentThumbnails: [
         {
-          thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,oldPage' }],
+          thumbnails: [
+            { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,oldPage' },
+          ],
           windowId: 10,
         },
       ],
@@ -700,7 +702,9 @@ describe('background recent tab switcher orchestration', () => {
     const harness = await createBackgroundHarness({
       initialRecentThumbnails: [
         {
-          thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' }],
+          thumbnails: [
+            { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' },
+          ],
           windowId: 10,
         },
       ],
@@ -711,7 +715,9 @@ describe('background recent tab switcher orchestration', () => {
 
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
       {
-        thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' }],
+        thumbnails: [
+          { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,currentPage' },
+        ],
         windowId: 10,
       },
     ])
@@ -728,7 +734,9 @@ describe('background recent tab switcher orchestration', () => {
           windowId: 10,
         },
         {
-          thumbnails: [{ tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,three' }],
+          thumbnails: [
+            { tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,three' },
+          ],
           windowId: 20,
         },
       ],

@@ -65,7 +65,9 @@ describe('recent tab thumbnails', () => {
         windowId: 10,
       },
       {
-        thumbnails: [{ tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,three' }],
+        thumbnails: [
+          { tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,three' },
+        ],
         windowId: 20,
       },
     ])

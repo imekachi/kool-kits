@@ -265,7 +265,8 @@ function queueVisibleTabThumbnailCapture({
 
 async function waitForNextThumbnailCaptureSlot({ allowDelay }) {
   const now = Date.now()
-  const nextAllowedAt = lastThumbnailCaptureAt + THUMBNAIL_CAPTURE_MIN_INTERVAL_MS
+  const nextAllowedAt =
+    lastThumbnailCaptureAt + THUMBNAIL_CAPTURE_MIN_INTERVAL_MS
   if (nextAllowedAt > now) {
     if (!allowDelay) {
       throw new Error('thumbnail capture skipped by rate limit')
@@ -339,7 +340,10 @@ function getActiveTabGeneration(windowId) {
 }
 
 function bumpActiveTabGeneration(windowId) {
-  activeTabGenerationsByWindowId.set(windowId, getActiveTabGeneration(windowId) + 1)
+  activeTabGenerationsByWindowId.set(
+    windowId,
+    getActiveTabGeneration(windowId) + 1,
+  )
 }
 
 function getTabNavigationGeneration({ tabId, windowId }) {
@@ -348,7 +352,10 @@ function getTabNavigationGeneration({ tabId, windowId }) {
 
 function bumpTabNavigationGeneration({ tabId, windowId }) {
   const tabKey = getTabKey({ tabId, windowId })
-  tabNavigationGenerations.set(tabKey, (tabNavigationGenerations.get(tabKey) ?? 0) + 1)
+  tabNavigationGenerations.set(
+    tabKey,
+    (tabNavigationGenerations.get(tabKey) ?? 0) + 1,
+  )
 }
 
 function getTabKey({ tabId, windowId }) {
