@@ -8,6 +8,13 @@ const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html'
 const SWITCHER_DOCUMENT_PATH = 'src/switcher.html'
 const TOAST_SCRIPT_PATH = 'src/toast.js'
 const RECENT_TAB_HISTORY_STORAGE_KEY = 'recentTabHistories'
+const SWITCHER_CARD_WIDTH = 179
+const SWITCHER_MAX_VISIBLE_TABS = 6
+const SWITCHER_WINDOW_HEIGHT = 230
+const SWITCHER_WINDOW_MIN_WIDTH = 520
+const SWITCHER_WINDOW_MAX_WIDTH = 1160
+const SWITCHER_SHELL_HORIZONTAL_PADDING = 34
+const SWITCHER_WINDOW_HORIZONTAL_PADDING = 0
 
 let offscreenDocumentCreationPromise
 let recentTabHistoryPromise
@@ -57,9 +64,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'ready') {
-    markSwitcherReady()
-    sendResponse({ ok: true })
-    return undefined
+    void markSwitcherReady({
+      layoutMetrics: message.layoutMetrics,
+      visibleItemCount: message.visibleItemCount,
+    }).then(sendResponse)
+    return true
   }
 
   if (message.type === 'commit-selection') {
@@ -156,7 +165,7 @@ async function openRecentTabSwitcher() {
       return
     }
 
-    const sourceBounds = getSwitcherBounds(sourceWindow)
+    const sourceBounds = getSwitcherBounds(sourceWindow, historyTabIds.length)
     switcherSession = {
       ready: false,
       sourceWindowId: sourceWindow.id,
@@ -250,9 +259,45 @@ async function sendAdvanceSelection(direction) {
   }
 }
 
-function markSwitcherReady() {
-  if (switcherSession) {
-    switcherSession.ready = true
+async function markSwitcherReady({ layoutMetrics, visibleItemCount }) {
+  if (!switcherSession) {
+    return { ok: false }
+  }
+
+  switcherSession.ready = true
+  await resizeSwitcherToVisibleItems({ layoutMetrics, visibleItemCount })
+  return { ok: true }
+}
+
+async function resizeSwitcherToVisibleItems({
+  layoutMetrics,
+  visibleItemCount,
+}) {
+  if (
+    !Number.isInteger(visibleItemCount) ||
+    !Number.isInteger(switcherSession?.sourceWindowId) ||
+    !Number.isInteger(switcherSession?.switcherWindowId)
+  ) {
+    return
+  }
+
+  try {
+    const sourceWindow = await chrome.windows.get(
+      switcherSession.sourceWindowId,
+    )
+    const bounds = getSwitcherBounds(
+      sourceWindow,
+      visibleItemCount,
+      layoutMetrics,
+    )
+    await chrome.windows.update(switcherSession.switcherWindowId, {
+      height: bounds.height,
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+    })
+  } catch {
+    // The source or switcher window may have closed while the UI was loading.
   }
 }
 
@@ -298,9 +343,19 @@ function getDefaultFaviconUrl(pageUrl) {
   return faviconUrl.toString()
 }
 
-function getSwitcherBounds(sourceWindow) {
-  const width = Math.min(1160, Math.max(520, sourceWindow.width ?? 1160))
-  const height = 230
+function getSwitcherBounds(sourceWindow, visibleItemCount, layoutMetrics) {
+  const sourceBoundedWidth = Math.min(
+    SWITCHER_WINDOW_MAX_WIDTH,
+    Math.max(
+      SWITCHER_WINDOW_MIN_WIDTH,
+      sourceWindow.width ?? SWITCHER_WINDOW_MAX_WIDTH,
+    ),
+  )
+  const width = Math.min(
+    getDesiredSwitcherWidth({ layoutMetrics, visibleItemCount }),
+    sourceBoundedWidth,
+  )
+  const height = getDesiredSwitcherHeight({ layoutMetrics, width })
   const left = Math.round(
     (sourceWindow.left ?? 0) + ((sourceWindow.width ?? width) - width) / 2,
   )
@@ -309,6 +364,43 @@ function getSwitcherBounds(sourceWindow) {
   )
 
   return { height, left, top, width }
+}
+
+function getDesiredSwitcherHeight({ layoutMetrics, width }) {
+  if (
+    !layoutMetrics ||
+    !Number.isFinite(layoutMetrics.contentHeight) ||
+    !Number.isFinite(layoutMetrics.contentWidth) ||
+    !Number.isFinite(layoutMetrics.frameHeight)
+  ) {
+    return SWITCHER_WINDOW_HEIGHT
+  }
+
+  const horizontalPadding = Math.max(
+    0,
+    (width - layoutMetrics.contentWidth) / 2,
+  )
+  return Math.round(
+    layoutMetrics.contentHeight +
+      horizontalPadding * 2 +
+      layoutMetrics.frameHeight,
+  )
+}
+
+function getDesiredSwitcherWidth({ layoutMetrics, visibleItemCount }) {
+  if (Number.isFinite(layoutMetrics?.contentWidth)) {
+    return layoutMetrics.contentWidth + SWITCHER_WINDOW_HORIZONTAL_PADDING
+  }
+
+  const itemCount = Math.max(
+    1,
+    Math.min(visibleItemCount, SWITCHER_MAX_VISIBLE_TABS),
+  )
+  return (
+    SWITCHER_CARD_WIDTH * itemCount +
+    SWITCHER_SHELL_HORIZONTAL_PADDING +
+    SWITCHER_WINDOW_HORIZONTAL_PADDING
+  )
 }
 
 async function copyCurrentUrl() {

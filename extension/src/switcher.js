@@ -45,17 +45,34 @@ async function loadSwitcherState() {
   switcherTabs = response?.tabs ?? []
   selectedIndex = switcherTabs.length > 1 ? 1 : 0
 
-  await chrome.runtime.sendMessage({
-    target: 'kool-kits-recent-tab-switcher',
-    type: 'ready',
-  })
-
   if (switcherTabs.length <= 1) {
     window.close()
     return
   }
 
   render()
+
+  await chrome.runtime.sendMessage({
+    layoutMetrics: getLayoutMetrics(),
+    target: 'kool-kits-recent-tab-switcher',
+    type: 'ready',
+    visibleItemCount: switcherTabs.length,
+  })
+}
+
+function getLayoutMetrics() {
+  const shell = document
+    .querySelector('.switcher-shell')
+    ?.getBoundingClientRect()
+  if (!shell) {
+    return undefined
+  }
+
+  return {
+    contentHeight: Math.round(shell.height),
+    contentWidth: Math.round(shell.width),
+    frameHeight: Math.max(0, window.outerHeight - window.innerHeight),
+  }
 }
 
 async function commitSelection() {

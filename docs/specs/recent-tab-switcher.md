@@ -40,6 +40,8 @@ Navigation invalidates a tab's previous thumbnail because an old page image shou
 
 The switcher should feel like a lightweight browser overlay: centered, dark, rounded, and horizontal. It should show up to six tab cards. Each card contains a stable preview area plus favicon and truncated title. The selected card must be visually obvious.
 
+The switcher window should size to the rendered tab cards instead of always reserving room for the maximum list. The browser window should hug the rendered panel so there is no separate outer gutter between the window edge and the UI; internal panel and card spacing provide the visual breathing room. The window background should match the panel background, and the panel should avoid a separate border so the popup reads as one compact surface.
+
 The visual language should build from the Kool Kits logo palette:
 
 - Deep navy: `#1d1b3a`
@@ -90,6 +92,8 @@ Per-window history avoids surprising focus jumps across Chrome windows and match
 An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Screenshot previews are part of the launch experience because the switcher needs visual recognition, while the black fallback keeps switching reliable on pages where Chrome cannot provide a usable thumbnail. Tying thumbnails to recent-history lifetime keeps the behavior predictable, and bounding stored previews reduces privacy and quota risk from retaining full-resolution page images.
 
 Keeping `Ctrl+Tab` as an optional setup tip preserves the desired workflow for advanced users while keeping the extension command valid and remappable for normal Chrome installs.
+
+Sizing the popup from the rendered content reduces empty space when only a few recent tabs are available while keeping the full-list presentation compact. Removing the outer gutter and using the panel color as the window background avoids a visible nested-container effect. Basing the final resize on the UI's rendered layout keeps the window aligned with what the user actually sees.
 
 ## Out Of Scope
 
