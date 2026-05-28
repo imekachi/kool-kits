@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict'
-import { afterEach, describe, it } from 'node:test'
+import { afterEach, describe, it, mock } from 'node:test'
 
 const backgroundScriptUrl = new URL('../src/background.js', import.meta.url)
 const originalChrome = globalThis.chrome
+const originalCreateImageBitmap = globalThis.createImageBitmap
+const originalFetch = globalThis.fetch
+const originalOffscreenCanvas = globalThis.OffscreenCanvas
 
 let importCounter = 0
 
 afterEach(() => {
   globalThis.chrome = originalChrome
+  globalThis.createImageBitmap = originalCreateImageBitmap
+  globalThis.fetch = originalFetch
+  globalThis.OffscreenCanvas = originalOffscreenCanvas
+  mock.timers.reset()
 })
 
 describe('background command orchestration', () => {
@@ -451,6 +458,206 @@ describe('background recent tab switcher orchestration', () => {
     assert.equal(harness.calls.tabsUpdate.length, 0)
     assert.equal(harness.calls.windowsUpdate.length, 0)
   })
+
+  it('captures a thumbnail when a tab becomes active', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 2, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.calls.tabsCaptureVisibleTab, [
+      {
+        options: { format: 'jpeg', quality: 45 },
+        windowId: 10,
+      },
+    ])
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('opens immediately while the current-tab refresh is still in flight', async () => {
+    const capture = createDeferred()
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 1, windowId: 10 },
+      captureVisibleTabResult: capture.promise,
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+      initialRecentThumbnails: [
+        {
+          thumbnails: [
+            { tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,oldCurrent' },
+            { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,prevTab' },
+          ],
+          windowId: 10,
+        },
+      ],
+      lastFocusedWindow: openableSwitcherWindow(),
+    })
+
+    harness.invokeRecentTabSwitcherCommand()
+    await flushAsyncWork()
+
+    assert.equal(harness.calls.windowsCreate.length, 1)
+
+    const state = harness.invokeRuntimeMessage({
+      target: 'kool-kits-recent-tab-switcher',
+      type: 'get-state',
+    })
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.calls.tabsCaptureVisibleTab, [
+      {
+        options: { format: 'jpeg', quality: 45 },
+        windowId: 10,
+      },
+    ])
+    assert.deepEqual(
+      state.response.tabs.map(({ id, thumbnailUrl }) => ({ id, thumbnailUrl })),
+      [
+        { id: 1, thumbnailUrl: 'data:image/jpeg;base64,oldCurrent' },
+        { id: 2, thumbnailUrl: 'data:image/jpeg;base64,prevTab' },
+      ],
+    )
+
+    capture.resolve('data:image/jpeg;base64,cmF3')
+    await flushAsyncWork()
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [
+          { tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,prevTab' },
+          { tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,AQID' },
+        ],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('opens the switcher without thumbnails when capture fails', async () => {
+    const harness = await createBackgroundHarness({
+      captureVisibleTabError: new Error('capture unavailable'),
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+      lastFocusedWindow: openableSwitcherWindow(),
+    })
+
+    harness.invokeRecentTabSwitcherCommand()
+    await flushAsyncWork()
+
+    const state = harness.invokeRuntimeMessage({
+      target: 'kool-kits-recent-tab-switcher',
+      type: 'get-state',
+    })
+    await flushAsyncWork()
+
+    assert.equal(harness.calls.windowsCreate.length, 1)
+    assert.deepEqual(
+      state.response.tabs.map(({ id, thumbnailUrl }) => ({ id, thumbnailUrl })),
+      [
+        { id: 1, thumbnailUrl: undefined },
+        { id: 2, thumbnailUrl: undefined },
+      ],
+    )
+  })
+
+  it('does not save a capture when the active tab changed before capture finished', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 3, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, undefined)
+  })
+
+  it('does not save a capture after a switch-away-and-back race', async () => {
+    const capture = createDeferred()
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 2, windowId: 10 },
+      captureVisibleTabResult: capture.promise,
+      initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    harness.invokeTabActivated({ tabId: 3, windowId: 10 })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    capture.resolve('data:image/jpeg;base64,cmF3')
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, undefined)
+  })
+
+  it('coalesces rapid activation captures per window', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 3, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 1, windowId: 10 })
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    harness.invokeTabActivated({ tabId: 3, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    assert.equal(harness.calls.tabsCaptureVisibleTab.length, 1)
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('removes thumbnails when bounded recent history evicts old tabs', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 7, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+      initialRecentHistories: [{ tabIds: [6, 5, 4, 3, 2, 1], windowId: 10 }],
+      initialRecentThumbnails: [
+        {
+          thumbnails: [1, 2, 3, 4, 5, 6].map((tabId) => ({
+            tabId,
+            thumbnailUrl: `data:image/jpeg;base64,${tabId}`,
+          })),
+          windowId: 10,
+        },
+      ],
+    })
+
+    mock.timers.enable({ apis: ['setTimeout'] })
+    harness.invokeTabActivated({ tabId: 7, windowId: 10 })
+    await flushAsyncWork()
+    mock.timers.tick(250)
+    await flushAsyncWork()
+
+    assert.deepEqual(
+      harness.sessionStorage.recentTabThumbnails[0].thumbnails.map(
+        ({ tabId }) => tabId,
+      ),
+      [2, 3, 4, 5, 6, 7],
+    )
+  })
 })
 
 function openableSwitcherWindow() {
@@ -485,13 +692,17 @@ function openableSwitcherWindow() {
 async function createBackgroundHarness({
   activeTab,
   advanceSelectionResponse = { ok: true },
+  captureVisibleTabError,
+  captureVisibleTabResult = 'data:image/jpeg;base64,cmF3',
   copyResponse = { ok: true },
   createDocumentResult = Promise.resolve(),
   executeScriptError,
   existingContexts = [],
   getWindowResult,
   initialRecentHistories,
+  initialRecentThumbnails,
   lastFocusedWindow,
+  storageSetError,
   tabsUpdateError,
   windowsCreateResult,
   windowsRemoveError,
@@ -509,6 +720,7 @@ async function createBackgroundHarness({
     runtimeSendMessage: [],
     storageGet: [],
     storageSet: [],
+    tabsCaptureVisibleTab: [],
     tabsQuery: [],
     tabsSendMessage: [],
     tabsUpdate: [],
@@ -522,6 +734,32 @@ async function createBackgroundHarness({
   const sessionStorage = {}
   if (initialRecentHistories) {
     sessionStorage.recentTabHistories = initialRecentHistories
+  }
+  if (initialRecentThumbnails) {
+    sessionStorage.recentTabThumbnails = initialRecentThumbnails
+  }
+
+  globalThis.fetch = () =>
+    Promise.resolve({
+      blob: () => Promise.resolve(new Blob(['raw'])),
+    })
+  globalThis.createImageBitmap = () =>
+    Promise.resolve({ height: 900, width: 1600 })
+  globalThis.OffscreenCanvas = class FakeOffscreenCanvas {
+    constructor(width, height) {
+      this.height = height
+      this.width = width
+    }
+
+    getContext() {
+      return { drawImage() {} }
+    }
+
+    convertToBlob() {
+      return Promise.resolve(
+        new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/jpeg' }),
+      )
+    }
   }
 
   globalThis.chrome = {
@@ -584,6 +822,12 @@ async function createBackgroundHarness({
         set(values) {
           events.push('storage.session.set')
           calls.storageSet.push(values)
+          if (storageSetError && Object.hasOwn(values, 'recentTabThumbnails')) {
+            const error = storageSetError
+            error.values = values
+            storageSetError = undefined
+            return Promise.reject(error)
+          }
           Object.assign(sessionStorage, values)
           return Promise.resolve()
         },
@@ -599,6 +843,14 @@ async function createBackgroundHarness({
         addListener(listener) {
           tabsRemovedListeners.push(listener)
         },
+      },
+      captureVisibleTab(windowId, options) {
+        events.push('tabs.captureVisibleTab')
+        calls.tabsCaptureVisibleTab.push({ options, windowId })
+        if (captureVisibleTabError) {
+          return Promise.reject(captureVisibleTabError)
+        }
+        return Promise.resolve(captureVisibleTabResult)
       },
       query(options) {
         events.push('tabs.query')
@@ -702,13 +954,17 @@ async function createBackgroundHarness({
       for (const listener of runtimeMessageListeners) {
         listener(message, sender, sendResponse)
       }
-      return response
+      return {
+        get response() {
+          return response
+        },
+      }
     },
   }
 }
 
 async function flushAsyncWork() {
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < 50; index += 1) {
     await Promise.resolve()
   }
 }
