@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Kool Kits Settings</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="options-body">
+    <main class="options">
+      <h1 class="options-title">Kool Kits Settings</h1>
+
+      <section class="options-card">
+        <h2 class="options-section-title">Meeting Reminder</h2>
+
+        <div class="options-row">
+          <label class="options-label" for="enabled-toggle">
+            Enable meeting reminder
+          </label>
+          <label class="toggle">
+            <input id="enabled-toggle" type="checkbox" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="options-row">
+          <label class="options-label" for="lead-select">
+            Remind me before a meeting starts
+          </label>
+          <select id="lead-select" class="options-select"></select>
+        </div>
+
+        <div class="options-row">
+          <span class="options-label" id="connection-status">Not connected</span>
+          <button id="connection-button" class="options-button" type="button">
+            Connect
+          </button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
