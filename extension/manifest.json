@@ -11,11 +11,17 @@
   },
   "action": {
     "default_title": "Kool Kits",
+    "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "24": "icons/icon24.png",
       "48": "icons/icon48.png"
     }
+  },
+  "options_page": "src/options.html",
+  "oauth2": {
+    "client_id": "PASTE_CLIENT_ID_HERE",
+    "scopes": ["https://www.googleapis.com/auth/calendar.readonly"]
   },
   "background": {
     "service_worker": "src/background.js",
@@ -50,7 +56,9 @@
     "offscreen",
     "clipboardWrite",
     "storage",
-    "favicon"
+    "favicon",
+    "identity",
+    "alarms"
   ],
-  "host_permissions": ["<all_urls>"]
+  "host_permissions": ["<all_urls>", "https://www.googleapis.com/"]
 }
