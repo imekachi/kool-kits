@@ -5,6 +5,7 @@ const MAX_LEAD_MINUTES = 60
 export const MEETING_SETTINGS_DEFAULTS = {
   enabled: true,
   leadMinutes: 5,
+  meetingFilter: 'acceptedTentative',
 }
 
 export function mergeMeetingSettings(stored) {
@@ -16,7 +17,14 @@ export function mergeMeetingSettings(stored) {
     leadMinutes: checkIsValidLeadMinutes(stored?.leadMinutes)
       ? stored.leadMinutes
       : MEETING_SETTINGS_DEFAULTS.leadMinutes,
+    meetingFilter: checkIsValidMeetingFilter(stored?.meetingFilter)
+      ? stored.meetingFilter
+      : MEETING_SETTINGS_DEFAULTS.meetingFilter,
   }
+}
+
+function checkIsValidMeetingFilter(value) {
+  return value === 'acceptedTentative' || value === 'all'
 }
 
 function checkIsValidLeadMinutes(value) {

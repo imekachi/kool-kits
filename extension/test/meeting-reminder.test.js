@@ -8,11 +8,10 @@ const MINUTE = 60_000
 function meeting(overrides) {
   return {
     id: 'id',
-    calendarId: 'primary',
     title: 'Meeting',
     start: 0,
     end: MINUTE,
-    videoUrl: null,
+    joinUrl: null,
     ...overrides,
   }
 }

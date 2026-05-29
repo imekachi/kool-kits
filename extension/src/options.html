@@ -31,9 +31,24 @@
         </div>
 
         <div class="options-row">
-          <span class="options-label" id="connection-status">Not connected</span>
-          <button id="connection-button" class="options-button" type="button">
-            Connect
+          <label class="options-label" for="filter-select">Which meetings to show</label>
+          <select id="filter-select" class="options-select">
+            <option value="acceptedTentative">Accepted &amp; tentative</option>
+            <option value="all">All events</option>
+          </select>
+        </div>
+
+        <div class="options-row">
+          <span class="options-label" id="connection-status">
+            Checking connection…
+          </span>
+          <button
+            id="connection-button"
+            class="options-button"
+            type="button"
+            style="display: none"
+          >
+            Open Google Calendar
           </button>
         </div>
       </section>

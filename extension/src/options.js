@@ -6,6 +6,7 @@ const MAX_LEAD_MINUTES = 60
 
 const enabledToggle = document.getElementById('enabled-toggle')
 const leadSelect = document.getElementById('lead-select')
+const filterSelect = document.getElementById('filter-select')
 const connectionStatus = document.getElementById('connection-status')
 const connectionButton = document.getElementById('connection-button')
 
@@ -20,10 +21,13 @@ leadSelect.addEventListener('change', async () => {
   await setMeetingSettings({ leadMinutes: Number(leadSelect.value) })
 })
 
+filterSelect.addEventListener('change', async () => {
+  await setMeetingSettings({ meetingFilter: filterSelect.value })
+})
+
 connectionButton.addEventListener('click', async () => {
   connectionButton.disabled = true
-  const connected = connectionButton.dataset.connected === 'true'
-  await sendMessage({ type: connected ? 'disconnect' : 'connect' })
+  await sendMessage({ type: 'connect' })
   await refreshConnectionStatus()
   connectionButton.disabled = false
 })
@@ -41,17 +45,39 @@ async function initializeOptions() {
   const settings = await getMeetingSettings()
   enabledToggle.checked = settings.enabled
   leadSelect.value = String(settings.leadMinutes)
+  filterSelect.value = settings.meetingFilter
+  // Seed from the synced cache first (a fast storage read) so a connected user
+  // sees their account immediately, then confirm with the authoritative live
+  // check. This avoids flashing "Not connected" during the bootstrap fetch.
+  await seedConnectionFromCache()
   await refreshConnectionStatus()
+}
+
+async function seedConnectionFromCache() {
+  const state = await sendMessage({ type: 'get-popup-state' })
+  if (state?.connectedEmail) {
+    renderConnected(state.connectedEmail)
+  }
 }
 
 async function refreshConnectionStatus() {
   const status = await sendMessage({ type: 'get-connection-status' })
-  const connected = status?.connected === true
-  connectionButton.dataset.connected = String(connected)
-  connectionButton.textContent = connected ? 'Disconnect' : 'Connect'
-  connectionStatus.textContent = connected
-    ? 'Connected to Google Calendar'
-    : 'Not connected'
+  if (status?.connected === true) {
+    renderConnected(status.email)
+  } else {
+    renderNotConnected()
+  }
+}
+
+function renderConnected(email) {
+  connectionStatus.textContent = 'Connected as: ' + email
+  connectionButton.style.display = 'none'
+}
+
+function renderNotConnected() {
+  connectionStatus.textContent = 'Not connected'
+  connectionButton.style.display = ''
+  connectionButton.textContent = 'Open Google Calendar'
 }
 
 async function sendMessage(message) {

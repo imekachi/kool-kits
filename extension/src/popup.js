@@ -34,23 +34,8 @@ function render(state) {
 
   meetingSection.style.display = ''
 
-  if (state.syncState === 'not_connected') {
-    meetingSection.append(
-      buildStatus(
-        'Connect Google Calendar to see your meetings and get reminders.',
-        { actionLabel: 'Connect Google Calendar', action: 'connect' },
-      ),
-    )
-    return
-  }
-
-  if (state.syncState === 'auth_error') {
-    meetingSection.append(
-      buildStatus('Calendar access expired.', {
-        actionLabel: 'Reconnect',
-        action: 'connect',
-      }),
-    )
+  if (state.syncState === 'notConnected') {
+    meetingSection.append(buildNotConnected())
     return
   }
 
@@ -105,13 +90,13 @@ function buildMeetingCard(meeting, inProgress) {
   time.textContent = formatTimeRange(meeting.start, meeting.end)
   card.append(time)
 
-  if (meeting.videoUrl) {
+  if (meeting.joinUrl) {
     const join = document.createElement('button')
     join.className = 'meeting-join'
     join.type = 'button'
     join.textContent = 'Join'
     join.addEventListener('click', () => {
-      chrome.tabs.create({ url: meeting.videoUrl })
+      chrome.tabs.create({ url: meeting.joinUrl })
     })
     card.append(join)
   }
@@ -126,7 +111,7 @@ function buildEmpty() {
   return empty
 }
 
-function buildStatus(message, options) {
+function buildStatus(message) {
   const wrapper = document.createElement('div')
   wrapper.className = 'status-state'
 
@@ -134,19 +119,27 @@ function buildStatus(message, options) {
   text.textContent = message
   wrapper.append(text)
 
-  if (options?.action === 'connect') {
-    const button = document.createElement('button')
-    button.className = 'connect-button'
-    button.type = 'button'
-    button.textContent = options.actionLabel
-    button.addEventListener('click', async () => {
-      button.disabled = true
-      await sendMessage({ type: 'connect' })
-      const state = await sendMessage({ type: 'get-popup-state' })
-      render(state)
-    })
-    wrapper.append(button)
-  }
+  return wrapper
+}
+
+function buildNotConnected() {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'status-state'
+
+  const text = document.createElement('div')
+  text.textContent =
+    "Kool Kits reads your meetings from the Google account you're signed into in this browser."
+  wrapper.append(text)
+
+  const button = document.createElement('button')
+  button.className = 'connect-button'
+  button.type = 'button'
+  button.textContent = 'Connect Google Calendar'
+  button.addEventListener('click', () => {
+    button.disabled = true
+    void sendMessage({ type: 'connect' })
+  })
+  wrapper.append(button)
 
   return wrapper
 }

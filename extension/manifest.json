@@ -19,10 +19,6 @@
     }
   },
   "options_page": "src/options.html",
-  "oauth2": {
-    "client_id": "PASTE_CLIENT_ID_HERE",
-    "scopes": ["https://www.googleapis.com/auth/calendar.readonly"]
-  },
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
@@ -57,8 +53,7 @@
     "clipboardWrite",
     "storage",
     "favicon",
-    "identity",
     "alarms"
   ],
-  "host_permissions": ["<all_urls>", "https://www.googleapis.com/"]
+  "host_permissions": ["<all_urls>", "https://calendar.google.com/"]
 }

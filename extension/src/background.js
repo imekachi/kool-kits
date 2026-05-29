@@ -2,8 +2,11 @@ import { checkCanCopyTabUrl } from './copyable-url.js'
 import { createRecentTabHistory } from './recent-tab-history.js'
 import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
 import { prepareThumbnailImage } from './thumbnail-image.js'
-import { clearAuthToken, getAuthToken, revokeAuthToken } from './calendar-auth.js'
-import { fetchTodaysEvents } from './calendar-events.js'
+import {
+  CALENDAR_OPEN_URL,
+  fetchBootstrap,
+  fetchTodaysEvents,
+} from './calendar-session.js'
 import { computeBadgeText, groupMeetings } from './meeting-reminder.js'
 import { getMeetingSettings } from './meeting-settings.js'
 
@@ -787,6 +790,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 })
 
+// Recover promptly from a session the user just established: when a Google
+// Calendar tab finishes loading, re-detect the account so signing in there shows
+// meetings without waiting for the next periodic alarm.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (
+    changeInfo.status === 'complete' &&
+    typeof tab?.url === 'string' &&
+    tab.url.startsWith('https://calendar.google.com/')
+  ) {
+    void syncMeetings()
+  }
+})
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== MEETING_REMINDER_MESSAGE_TARGET) {
     return undefined
@@ -804,11 +820,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'connect') {
     void connectCalendar().then(sendResponse)
-    return true
-  }
-
-  if (message.type === 'disconnect') {
-    void disconnectCalendar().then(sendResponse)
     return true
   }
 
@@ -834,7 +845,8 @@ async function getMeetingCache() {
   const stored = await chrome.storage.local.get(MEETING_REMINDER_CACHE_KEY)
   return (
     stored[MEETING_REMINDER_CACHE_KEY] ?? {
-      syncState: 'not_connected',
+      syncState: 'notConnected',
+      connectedEmail: undefined,
       meetings: [],
       lastSyncedAt: 0,
     }
@@ -860,6 +872,7 @@ async function runMeetingSync() {
   if (!settings.enabled) {
     await setMeetingCache({
       syncState: 'disabled',
+      connectedEmail: undefined,
       meetings: [],
       lastSyncedAt: Date.now(),
     })
@@ -867,56 +880,54 @@ async function runMeetingSync() {
     return
   }
 
-  const token = await getAuthToken({ interactive: false })
-  if (!token) {
+  let bootstrap
+  try {
+    bootstrap = await fetchBootstrap()
+  } catch {
+    // A failed bootstrap is a transient error (offline, server error), not a
+    // signed-out session: keep the last good meetings driving the badge/popup.
     const previous = await getMeetingCache()
-    await setMeetingCache({ ...previous, syncState: 'not_connected' })
-    await clearMeetingBadge()
+    await setMeetingCache({ ...previous, syncState: 'error' })
+    await refreshMeetingBadge()
+    return
+  }
+
+  if (!bootstrap.connected) {
+    // No identifiable session (signed out or expired). Preserve cached meetings
+    // so a brief session lapse does not blank the popup or drop the badge.
+    const previous = await getMeetingCache()
+    await setMeetingCache({
+      ...previous,
+      syncState: 'notConnected',
+      connectedEmail: undefined,
+    })
+    await refreshMeetingBadge()
     return
   }
 
   try {
-    const meetings = await fetchEventsWithReauth(token)
+    const meetings = await fetchTodaysEvents({
+      email: bootstrap.email,
+      version: bootstrap.version,
+      meetingFilter: settings.meetingFilter,
+    })
     await setMeetingCache({
-      syncState: 'ok',
+      syncState: 'connected',
+      connectedEmail: bootstrap.email,
       meetings,
       lastSyncedAt: Date.now(),
     })
     await refreshMeetingBadge()
-  } catch (error) {
-    if (error?.code === 'unauthorized') {
-      const previous = await getMeetingCache()
-      await setMeetingCache({ ...previous, syncState: 'auth_error' })
-      await clearMeetingBadge()
-      return
-    }
-
+  } catch {
     // Transient failure (offline, server error): keep the last good meetings so
     // the badge keeps counting down from cache and the popup keeps its list.
     const previous = await getMeetingCache()
-    await setMeetingCache({ ...previous, syncState: 'error' })
+    await setMeetingCache({
+      ...previous,
+      syncState: 'error',
+      connectedEmail: bootstrap.email,
+    })
     await refreshMeetingBadge()
-  }
-}
-
-// An unauthorized response usually means a stale cached token, not revoked access.
-// Clear it, silently re-acquire once, and retry. Only a failed re-acquire is a
-// real auth error (it re-throws the unauthorized error).
-async function fetchEventsWithReauth(token) {
-  try {
-    return await fetchTodaysEvents(token)
-  } catch (error) {
-    if (error?.code !== 'unauthorized') {
-      throw error
-    }
-
-    await clearAuthToken(token)
-    const freshToken = await getAuthToken({ interactive: false })
-    if (!freshToken) {
-      throw error
-    }
-
-    return await fetchTodaysEvents(freshToken)
   }
 }
 
@@ -925,11 +936,12 @@ async function refreshMeetingBadge() {
   const cache = await getMeetingCache()
 
   // Render from cached meetings whenever we have a usable set. A transient fetch
-  // error keeps the last good meetings, so the badge must NOT blank on 'error'.
-  // Only disabled / not_connected / auth_error states clear the badge.
+  // error or a brief session lapse keeps the last good meetings, so the badge
+  // must NOT blank on 'error' / 'notConnected'. Only the disabled state (or an
+  // empty cache) clears the badge.
   const checkHasUsableCache =
     settings.enabled &&
-    (cache.syncState === 'ok' || cache.syncState === 'error') &&
+    cache.syncState !== 'disabled' &&
     Array.isArray(cache.meetings) &&
     cache.meetings.length > 0
   if (!checkHasUsableCache) {
@@ -960,51 +972,39 @@ async function getMeetingPopupState() {
   const settings = await getMeetingSettings()
   const cache = await getMeetingCache()
   const now = Date.now()
-  // Group whenever we have cached meetings, including the transient 'error' state,
-  // so a popup opened while briefly offline keeps showing the last known list.
-  const checkHasCachedMeetings =
-    (cache.syncState === 'ok' || cache.syncState === 'error') &&
-    Array.isArray(cache.meetings)
-  const groups = checkHasCachedMeetings
+  // Group whenever we have cached meetings (any non-disabled state), so a popup
+  // opened during a transient error or brief session lapse keeps showing the
+  // last known list rather than collapsing.
+  const groups = Array.isArray(cache.meetings)
     ? groupMeetings(cache.meetings, now)
     : { inProgress: [], upcoming: [] }
 
   return {
     enabled: settings.enabled,
     syncState: cache.syncState,
+    connectedEmail: cache.connectedEmail,
     inProgress: groups.inProgress,
     upcoming: groups.upcoming,
   }
 }
 
 async function getConnectionStatus() {
-  // Connection reflects real token presence, independent of the enabled flag,
-  // so a connected-but-disabled user is not told to reconnect.
-  const token = await getAuthToken({ interactive: false })
-  return { connected: Boolean(token) }
-}
-
-async function connectCalendar() {
-  const token = await getAuthToken({ interactive: true })
-  if (!token) {
-    return { ok: false }
+  // Connection reflects whether a live Google session account can be identified,
+  // independent of the enabled flag, so a connected-but-disabled user is not
+  // misled into thinking they must reconnect. This does a fresh bootstrap rather
+  // than trusting the cache, which may be 'disabled' (no email) while syncing off.
+  try {
+    const bootstrap = await fetchBootstrap()
+    return { connected: bootstrap.connected, email: bootstrap.email }
+  } catch {
+    return { connected: false, email: undefined }
   }
-
-  await syncMeetings()
-  return { ok: true }
 }
 
-async function disconnectCalendar() {
-  // The service worker is ephemeral, so never trust an in-memory token. Read the
-  // live cached token now and revoke that, otherwise disconnect would no-op after
-  // a worker restart and the feature would silently reconnect on the next sync.
-  const token = await getAuthToken({ interactive: false })
-  await revokeAuthToken(token)
-  await setMeetingCache({
-    syncState: 'not_connected',
-    meetings: [],
-    lastSyncedAt: Date.now(),
-  })
-  await clearMeetingBadge()
+// There is no OAuth grant to request: "connecting" opens Google Calendar so the
+// user signs in there. The tabs.onUpdated listener re-detects the session once
+// that tab finishes loading.
+async function connectCalendar() {
+  await chrome.tabs.create({ url: CALENDAR_OPEN_URL })
   return { ok: true }
 }
