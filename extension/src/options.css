@@ -1,0 +1,246 @@
+.options-body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--kool-navy);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.options {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 28px;
+}
+
+.options-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.options-header img {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: block;
+}
+
+.options-title {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.options-card {
+  background: var(--panel);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* feature header: name + description + master switch */
+.options-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.options-feature-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.options-feature-desc {
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+/* controls */
+.options-controls {
+  padding: 4px 20px;
+}
+
+.options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 0;
+}
+
+.options-row + .options-row {
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.options-label {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.options-hint {
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* When the feature is off, calendar controls don't apply: dim and disable. */
+.options-card[data-enabled='false'] .options-controls {
+  opacity: 0.5;
+}
+
+.options-select {
+  background: var(--panel-raised);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 12px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.options-select:focus-visible {
+  outline: 2px solid var(--kool-yellow);
+  outline-offset: 2px;
+}
+
+.options-select:disabled {
+  cursor: default;
+}
+
+/* connection footer */
+.options-connection {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 20px;
+  background: var(--panel-raised);
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.options-connection .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: 0 0 auto;
+}
+
+.options-connection[data-connected='true'] .dot {
+  background: var(--connected);
+  box-shadow: 0 0 0 3px rgba(70, 211, 154, 0.16);
+}
+
+.options-connection-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.options-connection-label {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.options-connection-email {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.options-connection-email:empty {
+  display: none;
+}
+
+.options-button {
+  background: var(--kool-yellow);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition:
+    filter 0.16s ease,
+    transform 0.08s ease;
+}
+
+.options-button:hover {
+  filter: brightness(1.06);
+}
+
+.options-button:active {
+  transform: translateY(1px);
+}
+
+.options-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.options-button:focus-visible {
+  outline: 2px solid var(--kool-yellow);
+  outline-offset: 2px;
+}
+
+/* sliding toggle switch */
+.toggle {
+  display: inline-flex;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--panel-raised-2);
+  border: 1px solid var(--hairline);
+  transition: background 0.16s ease;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.16s ease;
+}
+
+.toggle input:checked + .toggle-track {
+  background: var(--kool-yellow);
+  border-color: var(--kool-yellow);
+}
+
+.toggle input:checked + .toggle-track .toggle-thumb {
+  background: var(--on-accent);
+  transform: translateX(20px);
+}
+
+.toggle input:focus-visible + .toggle-track {
+  outline: 2px solid var(--kool-yellow);
+  outline-offset: 2px;
+}
