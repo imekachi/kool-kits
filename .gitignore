@@ -1,7 +1,6 @@
 .playwright-mcp
 .DS_Store
 Thumbs.db
-.npmrc
 
 # Dependencies
 node_modules
@@ -11,7 +10,6 @@ dist/
 
 # env
 *.local
-.npmrc
 
 # IDE
 .idea/*

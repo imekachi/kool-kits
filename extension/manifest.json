@@ -28,8 +28,29 @@
         "mac": "Command+Shift+C"
       },
       "description": "Copy current URL"
+    },
+    "recent-tab-switcher": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "MacCtrl+Shift+K"
+      },
+      "description": "Show recent tab switcher"
+    },
+    "recent-tab-switcher-previous": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+J",
+        "mac": "MacCtrl+Shift+J"
+      },
+      "description": "Move recent tab switcher selection backward"
     }
   },
-  "permissions": ["tabs", "scripting", "offscreen", "clipboardWrite"],
+  "permissions": [
+    "tabs",
+    "scripting",
+    "offscreen",
+    "clipboardWrite",
+    "storage",
+    "favicon"
+  ],
   "host_permissions": ["<all_urls>"]
 }
