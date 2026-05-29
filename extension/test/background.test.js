@@ -889,6 +889,12 @@ async function createBackgroundHarness({
   }
 
   globalThis.chrome = {
+    alarms: {
+      create() {},
+      onAlarm: {
+        addListener() {},
+      },
+    },
     commands: {
       onCommand: {
         addListener(listener) {
@@ -911,6 +917,12 @@ async function createBackgroundHarness({
       },
       getURL(path) {
         return `chrome-extension://kool-kits/${path}`
+      },
+      onInstalled: {
+        addListener() {},
+      },
+      onStartup: {
+        addListener() {},
       },
       onMessage: {
         addListener(listener) {
@@ -939,6 +951,9 @@ async function createBackgroundHarness({
       },
     },
     storage: {
+      onChanged: {
+        addListener() {},
+      },
       session: {
         get(key) {
           events.push('storage.session.get')

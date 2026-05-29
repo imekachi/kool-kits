@@ -2,6 +2,10 @@ import { checkCanCopyTabUrl } from './copyable-url.js'
 import { createRecentTabHistory } from './recent-tab-history.js'
 import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
 import { prepareThumbnailImage } from './thumbnail-image.js'
+import { clearAuthToken, getAuthToken, revokeAuthToken } from './calendar-auth.js'
+import { fetchTodaysEvents } from './calendar-events.js'
+import { computeBadgeText, groupMeetings } from './meeting-reminder.js'
+import { getMeetingSettings } from './meeting-settings.js'
 
 const COPY_CURRENT_URL_COMMAND = 'copy-current-url'
 const RECENT_TAB_SWITCHER_COMMAND = 'recent-tab-switcher'
@@ -745,4 +749,262 @@ async function sendToastMessage(tabId, toast) {
   } catch {
     // The spec intentionally avoids fallback feedback channels.
   }
+}
+
+const MEETING_REMINDER_MESSAGE_TARGET = 'kool-kits-meeting-reminder'
+const MEETING_REMINDER_CACHE_KEY = 'meetingReminderCache'
+const MEETING_REMINDER_FETCH_ALARM = 'meeting-reminder-fetch'
+const MEETING_REMINDER_TICK_ALARM = 'meeting-reminder-tick'
+const MEETING_REMINDER_FETCH_PERIOD_MINUTES = 5
+const MEETING_REMINDER_TICK_PERIOD_MINUTES = 1
+const MEETING_BADGE_BACKGROUND_COLOR = '#e5484d'
+const MEETING_BADGE_TEXT_COLOR = '#ffffff'
+
+let meetingSyncPromise
+
+chrome.runtime.onInstalled.addListener(() => {
+  void initializeMeetingReminder()
+})
+
+chrome.runtime.onStartup.addListener(() => {
+  void initializeMeetingReminder()
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === MEETING_REMINDER_FETCH_ALARM) {
+    void syncMeetings()
+    return
+  }
+
+  if (alarm.name === MEETING_REMINDER_TICK_ALARM) {
+    void refreshMeetingBadge()
+  }
+})
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.meetingSettings) {
+    void syncMeetings()
+  }
+})
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== MEETING_REMINDER_MESSAGE_TARGET) {
+    return undefined
+  }
+
+  if (message.type === 'get-popup-state') {
+    void getMeetingPopupState().then(sendResponse)
+    return true
+  }
+
+  if (message.type === 'get-connection-status') {
+    void getConnectionStatus().then(sendResponse)
+    return true
+  }
+
+  if (message.type === 'connect') {
+    void connectCalendar().then(sendResponse)
+    return true
+  }
+
+  if (message.type === 'disconnect') {
+    void disconnectCalendar().then(sendResponse)
+    return true
+  }
+
+  if (message.type === 'refresh') {
+    void syncMeetings().then(() => getMeetingPopupState()).then(sendResponse)
+    return true
+  }
+
+  return undefined
+})
+
+async function initializeMeetingReminder() {
+  await chrome.alarms.create(MEETING_REMINDER_FETCH_ALARM, {
+    periodInMinutes: MEETING_REMINDER_FETCH_PERIOD_MINUTES,
+  })
+  await chrome.alarms.create(MEETING_REMINDER_TICK_ALARM, {
+    periodInMinutes: MEETING_REMINDER_TICK_PERIOD_MINUTES,
+  })
+  await syncMeetings()
+}
+
+async function getMeetingCache() {
+  const stored = await chrome.storage.local.get(MEETING_REMINDER_CACHE_KEY)
+  return (
+    stored[MEETING_REMINDER_CACHE_KEY] ?? {
+      syncState: 'not_connected',
+      meetings: [],
+      lastSyncedAt: 0,
+    }
+  )
+}
+
+async function setMeetingCache(cache) {
+  await chrome.storage.local.set({ [MEETING_REMINDER_CACHE_KEY]: cache })
+}
+
+// Coalesce overlapping triggers (alarm, popup refresh, settings change) into one
+// in-flight sync so a slow failing sync cannot clobber a newer successful one.
+function syncMeetings() {
+  meetingSyncPromise ??= runMeetingSync().finally(() => {
+    meetingSyncPromise = undefined
+  })
+  return meetingSyncPromise
+}
+
+async function runMeetingSync() {
+  const settings = await getMeetingSettings()
+
+  if (!settings.enabled) {
+    await setMeetingCache({
+      syncState: 'disabled',
+      meetings: [],
+      lastSyncedAt: Date.now(),
+    })
+    await clearMeetingBadge()
+    return
+  }
+
+  const token = await getAuthToken({ interactive: false })
+  if (!token) {
+    const previous = await getMeetingCache()
+    await setMeetingCache({ ...previous, syncState: 'not_connected' })
+    await clearMeetingBadge()
+    return
+  }
+
+  try {
+    const meetings = await fetchEventsWithReauth(token)
+    await setMeetingCache({
+      syncState: 'ok',
+      meetings,
+      lastSyncedAt: Date.now(),
+    })
+    await refreshMeetingBadge()
+  } catch (error) {
+    if (error?.code === 'unauthorized') {
+      const previous = await getMeetingCache()
+      await setMeetingCache({ ...previous, syncState: 'auth_error' })
+      await clearMeetingBadge()
+      return
+    }
+
+    // Transient failure (offline, server error): keep the last good meetings so
+    // the badge keeps counting down from cache and the popup keeps its list.
+    const previous = await getMeetingCache()
+    await setMeetingCache({ ...previous, syncState: 'error' })
+    await refreshMeetingBadge()
+  }
+}
+
+// An unauthorized response usually means a stale cached token, not revoked access.
+// Clear it, silently re-acquire once, and retry. Only a failed re-acquire is a
+// real auth error (it re-throws the unauthorized error).
+async function fetchEventsWithReauth(token) {
+  try {
+    return await fetchTodaysEvents(token)
+  } catch (error) {
+    if (error?.code !== 'unauthorized') {
+      throw error
+    }
+
+    await clearAuthToken(token)
+    const freshToken = await getAuthToken({ interactive: false })
+    if (!freshToken) {
+      throw error
+    }
+
+    return await fetchTodaysEvents(freshToken)
+  }
+}
+
+async function refreshMeetingBadge() {
+  const settings = await getMeetingSettings()
+  const cache = await getMeetingCache()
+
+  // Render from cached meetings whenever we have a usable set. A transient fetch
+  // error keeps the last good meetings, so the badge must NOT blank on 'error'.
+  // Only disabled / not_connected / auth_error states clear the badge.
+  const checkHasUsableCache =
+    settings.enabled &&
+    (cache.syncState === 'ok' || cache.syncState === 'error') &&
+    Array.isArray(cache.meetings) &&
+    cache.meetings.length > 0
+  if (!checkHasUsableCache) {
+    await clearMeetingBadge()
+    return
+  }
+
+  const badgeText = computeBadgeText(cache.meetings, Date.now(), settings.leadMinutes)
+  if (!badgeText) {
+    await clearMeetingBadge()
+    return
+  }
+
+  await chrome.action.setBadgeBackgroundColor({
+    color: MEETING_BADGE_BACKGROUND_COLOR,
+  })
+  if (chrome.action.setBadgeTextColor) {
+    await chrome.action.setBadgeTextColor({ color: MEETING_BADGE_TEXT_COLOR })
+  }
+  await chrome.action.setBadgeText({ text: badgeText })
+}
+
+async function clearMeetingBadge() {
+  await chrome.action.setBadgeText({ text: '' })
+}
+
+async function getMeetingPopupState() {
+  const settings = await getMeetingSettings()
+  const cache = await getMeetingCache()
+  const now = Date.now()
+  // Group whenever we have cached meetings, including the transient 'error' state,
+  // so a popup opened while briefly offline keeps showing the last known list.
+  const checkHasCachedMeetings =
+    (cache.syncState === 'ok' || cache.syncState === 'error') &&
+    Array.isArray(cache.meetings)
+  const groups = checkHasCachedMeetings
+    ? groupMeetings(cache.meetings, now)
+    : { inProgress: [], upcoming: [] }
+
+  return {
+    enabled: settings.enabled,
+    syncState: cache.syncState,
+    inProgress: groups.inProgress,
+    upcoming: groups.upcoming,
+  }
+}
+
+async function getConnectionStatus() {
+  // Connection reflects real token presence, independent of the enabled flag,
+  // so a connected-but-disabled user is not told to reconnect.
+  const token = await getAuthToken({ interactive: false })
+  return { connected: Boolean(token) }
+}
+
+async function connectCalendar() {
+  const token = await getAuthToken({ interactive: true })
+  if (!token) {
+    return { ok: false }
+  }
+
+  await syncMeetings()
+  return { ok: true }
+}
+
+async function disconnectCalendar() {
+  // The service worker is ephemeral, so never trust an in-memory token. Read the
+  // live cached token now and revoke that, otherwise disconnect would no-op after
+  // a worker restart and the feature would silently reconnect on the next sync.
+  const token = await getAuthToken({ interactive: false })
+  await revokeAuthToken(token)
+  await setMeetingCache({
+    syncState: 'not_connected',
+    meetings: [],
+    lastSyncedAt: Date.now(),
+  })
+  await clearMeetingBadge()
+  return { ok: true }
 }
