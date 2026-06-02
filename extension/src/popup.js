@@ -20,6 +20,7 @@ const settingsButton = document.getElementById('settings-button')
 let latestState
 let leadMinutes = 5
 let rerenderTimer
+let connectInFlight = false
 
 settingsButton.addEventListener('click', () => {
   chrome.runtime.openOptionsPage()
@@ -260,10 +261,27 @@ function buildNotConnected() {
   const button = document.createElement('button')
   button.className = 'connect-button'
   button.type = 'button'
-  button.textContent = 'Open Google Calendar'
+  button.textContent = connectInFlight ? 'Connecting…' : 'Open Google Calendar'
+  button.disabled = connectInFlight
   button.addEventListener('click', () => {
+    if (connectInFlight || button.disabled) {
+      return
+    }
+
+    connectInFlight = true
     button.disabled = true
+    button.textContent = 'Connecting…'
+
     void sendMessage({ type: 'connect' })
+      .then(() => sendMessage({ type: 'refresh' }))
+      .then((freshState) => {
+        if (freshState) {
+          render(freshState)
+        }
+      })
+      .finally(() => {
+        connectInFlight = false
+      })
   })
   state.append(button)
   return state

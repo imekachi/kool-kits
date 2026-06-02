@@ -5,6 +5,8 @@ import {
 import { getMeetingSettings, setMeetingSettings } from './meeting-settings.js'
 
 const MESSAGE_TARGET = 'kool-kits-meeting-reminder'
+const MEETING_CALENDAR_CONNECT_PENDING_KEY = 'meetingCalendarConnectPending'
+const CONNECT_BUTTON_LABEL = 'Open Google Calendar'
 const MIN_LEAD_MINUTES = 1
 const MAX_LEAD_MINUTES = 60
 
@@ -17,6 +19,8 @@ const connectionStatus = document.getElementById('connection-status')
 const connectionEmail = document.getElementById('connection-email')
 const connectionButton = document.getElementById('connection-button')
 const disconnectButton = document.getElementById('disconnect-button')
+
+let connectInFlight = false
 
 populateLeadOptions()
 void initializeOptions()
@@ -35,10 +39,30 @@ filterSelect.addEventListener('change', async () => {
 })
 
 connectionButton.addEventListener('click', async () => {
-  connectionButton.disabled = true
-  await sendMessage({ type: 'connect' })
-  await refreshConnectionStatus()
-  connectionButton.disabled = false
+  if (connectInFlight || connectionButton.disabled) {
+    return
+  }
+
+  connectInFlight = true
+  renderConnecting()
+
+  try {
+    const status = await sendMessage({ type: 'connect' })
+    if (status) {
+      renderConnectionFromState({
+        connectionStatus: status.connectionStatus,
+        connectedEmail: status.email,
+        connected: status.connected,
+      })
+    } else {
+      await refreshConnectionStatus()
+    }
+  } finally {
+    connectInFlight = false
+    if (!(await readConnectPending())) {
+      resetConnectButton()
+    }
+  }
 })
 
 disconnectButton.addEventListener('click', async () => {
@@ -58,6 +82,18 @@ disconnectButton.addEventListener('click', async () => {
 
   disconnectButton.textContent = previousLabel
   disconnectButton.disabled = false
+})
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') {
+    return
+  }
+
+  if (!changes.meetingReminderCache && !changes.meetingCalendarConnectPending) {
+    return
+  }
+
+  void handleConnectionStorageChange(changes)
 })
 
 function populateLeadOptions() {
@@ -104,12 +140,41 @@ async function seedConnectionFromCache() {
 }
 
 async function refreshConnectionStatus() {
+  if (await readConnectPending()) {
+    renderConnecting()
+    return
+  }
+
   const status = await sendMessage({ type: 'get-connection-status' })
   renderConnectionFromState({
     connectionStatus: status?.connectionStatus,
     connectedEmail: status?.email,
     connected: status?.connected,
   })
+  resetConnectButton()
+}
+
+async function handleConnectionStorageChange(changes) {
+  if (changes.meetingCalendarConnectPending?.newValue === true) {
+    renderConnecting()
+    return
+  }
+
+  const cache = changes.meetingReminderCache?.newValue
+  if (cache) {
+    renderConnectionFromState({
+      connectionStatus: cache.connectionStatus,
+      connectedEmail: cache.connectedEmail,
+      connected: checkShowsConnectedAccount(
+        cache.connectionStatus,
+        cache.connectedEmail,
+      ),
+    })
+  }
+
+  if (!(await readConnectPending()) && !connectInFlight) {
+    resetConnectButton()
+  }
 }
 
 function renderConnectionFromState(state) {
@@ -137,6 +202,17 @@ function renderChecking() {
   connectionButton.hidden = true
 }
 
+function renderConnecting() {
+  connectionRow.dataset.connected = 'connecting'
+  connectionStatus.textContent = 'Connecting…'
+  connectionEmail.textContent = ''
+  connectionEmail.hidden = true
+  disconnectButton.hidden = true
+  connectionButton.hidden = false
+  connectionButton.disabled = true
+  connectionButton.textContent = 'Connecting…'
+}
+
 function renderKnownAccount(email, liveConnected) {
   connectionRow.dataset.connected = liveConnected ? 'true' : 'false'
   connectionStatus.textContent = liveConnected
@@ -156,6 +232,26 @@ function renderNotConnected() {
   connectionEmail.hidden = true
   disconnectButton.hidden = true
   connectionButton.hidden = false
+
+  if (connectInFlight) {
+    connectionButton.disabled = true
+    connectionButton.textContent = 'Connecting…'
+    return
+  }
+
+  resetConnectButton()
+}
+
+function resetConnectButton() {
+  connectionButton.disabled = false
+  connectionButton.textContent = CONNECT_BUTTON_LABEL
+}
+
+async function readConnectPending() {
+  const stored = await chrome.storage.local.get(
+    MEETING_CALENDAR_CONNECT_PENDING_KEY,
+  )
+  return stored[MEETING_CALENDAR_CONNECT_PENDING_KEY] === true
 }
 
 async function sendMessage(message) {

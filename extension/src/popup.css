@@ -342,17 +342,18 @@ body {
     transform 0.08s ease;
 }
 
-.connect-button:hover {
+.connect-button:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
-.connect-button:active {
+.connect-button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
 .connect-button:disabled {
   opacity: 0.55;
-  cursor: default;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .connect-button:focus-visible {

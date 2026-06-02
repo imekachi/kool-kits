@@ -2,6 +2,7 @@ import { checkCanCopyTabUrl } from './copyable-url.js'
 import { createRecentTabHistory } from './recent-tab-history.js'
 import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
 import { prepareThumbnailImage } from './thumbnail-image.js'
+import { pickCalendarTabForConnect } from './calendar-connect.js'
 import {
   CALENDAR_OPEN_URL,
   fetchBootstrap,
@@ -21,6 +22,7 @@ import {
   checkIsExtensionDisconnected,
   checkKeepsCachedMeetingsOnBadge,
   buildConnectionStatusResponse,
+  checkShowsConnectedAccount,
   checkShouldClearReconnectPending,
   checkShouldFetchMeetingEvents,
   checkShouldRefreshLiveConnectionStatus,
@@ -1246,13 +1248,103 @@ async function getConnectionStatus() {
   return buildConnectionStatusResponse(await getMeetingCache())
 }
 
-// There is no OAuth grant to request: "connecting" opens Google Calendar so the
-// user signs in there. The tabs.onUpdated listener re-detects the session once
-// that tab finishes loading.
+const CALENDAR_CONNECT_POLL_MS = 500
+const CALENDAR_CONNECT_TIMEOUT_MS = 20_000
+const CALENDAR_TAB_QUERY = 'https://calendar.google.com/*'
+
+// Connect tries a background sync first so an existing Google session promotes
+// without opening Calendar. When sign-in is still needed, reuse an open Calendar
+// tab (focus + reload) or open one in the foreground for login.
 async function connectCalendar() {
   await setCalendarConnectPending(true)
-  await chrome.tabs.create({ url: CALENDAR_OPEN_URL })
-  return { ok: true }
+
+  try {
+    await syncMeetings()
+    let cache = await getMeetingCache()
+
+    if (
+      checkShowsConnectedAccount(cache.connectionStatus, cache.connectedEmail)
+    ) {
+      await setCalendarConnectPending(false)
+      return { ok: true, ...buildConnectionStatusResponse(cache) }
+    }
+
+    await openCalendarTabForSignIn()
+    await waitForCalendarConnectResult()
+    await syncMeetings()
+
+    cache = await getMeetingCache()
+    const response = { ok: true, ...buildConnectionStatusResponse(cache) }
+
+    if (
+      checkShowsConnectedAccount(cache.connectionStatus, cache.connectedEmail)
+    ) {
+      await setCalendarConnectPending(false)
+      await showCalendarConnectedToast()
+    }
+
+    return response
+  } catch {
+    await setCalendarConnectPending(false)
+    return {
+      ok: false,
+      ...buildConnectionStatusResponse(await getMeetingCache()),
+    }
+  }
+}
+
+async function queryCalendarTabs() {
+  return chrome.tabs.query({ url: CALENDAR_TAB_QUERY })
+}
+
+async function openCalendarTabForSignIn() {
+  const existingTab = pickCalendarTabForConnect(await queryCalendarTabs())
+
+  if (existingTab?.id) {
+    await chrome.tabs.update(existingTab.id, {
+      url: CALENDAR_OPEN_URL,
+      active: true,
+    })
+    return
+  }
+
+  await chrome.tabs.create({ url: CALENDAR_OPEN_URL, active: true })
+}
+
+async function waitForCalendarConnectResult() {
+  const deadline = Date.now() + CALENDAR_CONNECT_TIMEOUT_MS
+
+  while (Date.now() < deadline) {
+    const cache = await getMeetingCache()
+    if (
+      checkShowsConnectedAccount(cache.connectionStatus, cache.connectedEmail)
+    ) {
+      return true
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, CALENDAR_CONNECT_POLL_MS)
+    })
+  }
+
+  return false
+}
+
+async function showCalendarConnectedToast() {
+  const calendarTab = pickCalendarTabForConnect(await queryCalendarTabs())
+  if (!calendarTab?.id) {
+    return
+  }
+
+  const canRenderToast = await ensureToastScript(calendarTab.id)
+  if (!canRenderToast) {
+    return
+  }
+
+  await sendToastMessage(calendarTab.id, {
+    tone: 'success',
+    text: 'Calendar connected. You can close this tab.',
+  })
 }
 
 // Clears cached meetings and connection state and stops syncing until the user

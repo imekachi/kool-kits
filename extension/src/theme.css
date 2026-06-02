@@ -22,6 +22,7 @@
   --urgent: #e5484d; /* meeting urgency: badge, in-progress, soon-to-start */
   --urgent-soft: #ff9b9e; /* urgent text/accents on dark, AA on panel */
   --connected: #46d39a; /* live Google session present */
+  --connecting: var(--kool-yellow); /* connect flow in progress */
   --on-accent: #1a1505; /* ink on yellow surfaces (Join, enabled toggle) */
 
   /* surfaces (opaque: popup/options never sit over page content) */

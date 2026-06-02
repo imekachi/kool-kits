@@ -172,10 +172,48 @@
   box-shadow: 0 0 0 3px rgba(70, 211, 154, 0.16);
 }
 
+.options-connection[data-connected='connecting'] .dot {
+  background: var(--connecting);
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.22);
+}
+
+.options-connection[data-connected='checking'] .dot {
+  background: var(--faint);
+}
+
 /* Dim only the status readout when not connected; keep the connect CTA at full strength. */
-.options-connection[data-connected='false'] .options-connection-main,
+.options-connection[data-connected='false'] .options-connection-main {
+  opacity: 0.72;
+}
+
 .options-connection[data-connected='checking'] .options-connection-main {
   opacity: 0.72;
+}
+
+.options-connection[data-connected='connecting'] .options-connection-main {
+  opacity: 1;
+}
+
+.options-connection[data-connected='checking'] .options-connection-actions,
+.options-connection[data-connected='connecting'] .options-connection-actions {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .options-connection[data-connected='connecting'] .dot {
+    animation: options-connecting-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes options-connecting-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
 }
 
 .options-connection-text {
@@ -223,17 +261,30 @@
   border: none;
 }
 
-.options-button-primary:hover {
+.options-button-secondary {
+  background: var(--panel-raised-2);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.options-button-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--panel-raised-2) 82%, var(--ink));
+  border-color: color-mix(in srgb, var(--hairline) 55%, var(--muted));
+}
+
+.options-button-primary:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
-.options-button:active {
+.options-button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
 .options-button:disabled {
   opacity: 0.55;
-  cursor: default;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .options-button:focus-visible {
@@ -259,18 +310,19 @@
     color 0.16s ease;
 }
 
-.options-button-text:hover {
+.options-button-text:hover:not(:disabled) {
   background: rgba(255, 250, 240, 0.05);
   color: var(--ink);
 }
 
-.options-button-text:active {
+.options-button-text:active:not(:disabled) {
   background: rgba(255, 250, 240, 0.08);
 }
 
 .options-button-text:disabled {
-  cursor: default;
+  cursor: not-allowed;
   opacity: 0.55;
+  pointer-events: none;
 }
 
 @media (max-width: 420px) {
@@ -280,7 +332,8 @@
     justify-content: flex-end;
   }
 
-  .options-connection-actions .options-button-primary {
+  .options-connection-actions .options-button-primary,
+  .options-connection-actions .options-button-secondary {
     flex: 1 1 auto;
     text-align: center;
   }
