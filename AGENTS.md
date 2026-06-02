@@ -19,14 +19,20 @@
 If you are a subagent, skip this section.
 
 Use subagents when possible to do tasks in parallel(A) and avoid context pollution(B), and use the right model for the task. For example,
-- Reviewing works: B (inherit model)
-- Implementing code that already have details of what to do: A,B (composer 2.5 no fast)
-- Implementing code without much context: A,B (inherit model)
-- Researching, finding, running commands: A,B (composer 2.5 no fast)
+Models:
+- Top: Opus, GPT 5.5 , inherit (usually the model in the main session)
+- Mid: Sonnet, composer 2.5
+- Small: Haiku, composer 2.5
+
+Tasks:
+- Reviewing works -> B (Top model/inherit)
+- Implementing code that already have details of what to do -> A,B (Mid moel)
+- Implementing code without much context -> A,B (Top model/inherit model)
+- Researching, finding, running commands -> A,B (Mid model)
 
 Basically, 
-- do things more deterministic -> composer 2.5 (no fast)
-- do things needs thinking and decision making -> inherit model
+- do things more deterministic -> Mid model
+- do things needs thinking and decision making -> Top model/inherit model
 
 Before executing, think what would be the best workflow to achieve that. DoItYourself? or orchestrating?
 Be efficient, and produce quality output.
