@@ -117,14 +117,46 @@
   cursor: default;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* connection footer */
+.options-meeting-footer {
+  background: var(--panel-raised);
+  border-top: 1px solid var(--hairline-soft);
+}
+
 .options-connection {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+.options-connection-main {
+  display: flex;
+  align-items: center;
   gap: 11px;
-  padding: 15px 20px;
-  background: var(--panel-raised);
-  border-top: 1px solid var(--hairline-soft);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.options-connection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .options-connection .dot {
@@ -138,6 +170,12 @@
 .options-connection[data-connected='true'] .dot {
   background: var(--connected);
   box-shadow: 0 0 0 3px rgba(70, 211, 154, 0.16);
+}
+
+/* Dim only the status readout when not connected; keep the connect CTA at full strength. */
+.options-connection[data-connected='false'] .options-connection-main,
+.options-connection[data-connected='checking'] .options-connection-main {
+  opacity: 0.72;
 }
 
 .options-connection-text {
@@ -158,26 +196,34 @@
   white-space: nowrap;
 }
 
-.options-connection-email:empty {
+.options-connection-email:empty,
+.options-connection-email[hidden] {
   display: none;
 }
 
 .options-button {
-  background: var(--kool-yellow);
-  color: var(--on-accent);
-  border: none;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 700;
+  font-family: inherit;
+  min-height: 40px;
   padding: 8px 16px;
   cursor: pointer;
   flex: 0 0 auto;
   transition:
-    filter 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
     transform 0.08s ease;
 }
 
-.options-button:hover {
+.options-button-primary {
+  background: var(--kool-yellow);
+  color: var(--on-accent);
+  border: none;
+}
+
+.options-button-primary:hover {
   filter: brightness(1.06);
 }
 
@@ -191,6 +237,56 @@
 }
 
 .options-button:focus-visible {
+  outline: 2px solid var(--kool-yellow);
+  outline-offset: 2px;
+}
+
+.options-button-text {
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 40px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.options-button-text:hover {
+  background: rgba(255, 250, 240, 0.05);
+  color: var(--ink);
+}
+
+.options-button-text:active {
+  background: rgba(255, 250, 240, 0.08);
+}
+
+.options-button-text:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+@media (max-width: 420px) {
+  .options-connection-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .options-connection-actions .options-button-primary {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+}
+
+.options-button-text:focus-visible {
   outline: 2px solid var(--kool-yellow);
   outline-offset: 2px;
 }

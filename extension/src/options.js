@@ -1,3 +1,7 @@
+import {
+  checkShowsAccountIdentity,
+  checkShowsConnectedAccount,
+} from './meeting-connection.js'
 import { getMeetingSettings, setMeetingSettings } from './meeting-settings.js'
 
 const MESSAGE_TARGET = 'kool-kits-meeting-reminder'
@@ -12,6 +16,7 @@ const connectionRow = document.getElementById('connection-row')
 const connectionStatus = document.getElementById('connection-status')
 const connectionEmail = document.getElementById('connection-email')
 const connectionButton = document.getElementById('connection-button')
+const disconnectButton = document.getElementById('disconnect-button')
 
 populateLeadOptions()
 void initializeOptions()
@@ -36,6 +41,25 @@ connectionButton.addEventListener('click', async () => {
   connectionButton.disabled = false
 })
 
+disconnectButton.addEventListener('click', async () => {
+  const confirmed = confirm(
+    'Disconnect Kool Kits from this calendar?\n\nYour Google sign-in stays active. You can connect again later.',
+  )
+  if (!confirmed) {
+    return
+  }
+
+  disconnectButton.disabled = true
+  const previousLabel = disconnectButton.textContent
+  disconnectButton.textContent = 'Disconnecting…'
+
+  const state = await sendMessage({ type: 'disconnect-calendar' })
+  renderConnectionFromState(state)
+
+  disconnectButton.textContent = previousLabel
+  disconnectButton.disabled = false
+})
+
 function populateLeadOptions() {
   for (
     let minutes = MIN_LEAD_MINUTES;
@@ -56,6 +80,8 @@ async function initializeOptions() {
   filterSelect.value = settings.meetingFilter
   reflectEnabled(settings.enabled)
 
+  renderChecking()
+
   // Seed from the synced cache first (a fast storage read) so a connected user
   // sees their account immediately, then confirm with the authoritative live
   // check. This avoids flashing "Not connected" during the bootstrap fetch.
@@ -74,25 +100,52 @@ function reflectEnabled(enabled) {
 
 async function seedConnectionFromCache() {
   const state = await sendMessage({ type: 'get-popup-state' })
-  if (state?.connectedEmail) {
-    renderConnected(state.connectedEmail)
-  }
+  renderConnectionFromState(state)
 }
 
 async function refreshConnectionStatus() {
   const status = await sendMessage({ type: 'get-connection-status' })
-  if (status?.connected === true) {
-    renderConnected(status.email)
-  } else {
-    renderNotConnected()
-  }
+  renderConnectionFromState({
+    connectionStatus: status?.connectionStatus,
+    connectedEmail: status?.email,
+    connected: status?.connected,
+  })
 }
 
-function renderConnected(email) {
-  connectionRow.dataset.connected = 'true'
-  connectionStatus.textContent = 'Connected as'
+function renderConnectionFromState(state) {
+  if (
+    checkShowsAccountIdentity(state?.connectionStatus, state?.connectedEmail)
+  ) {
+    renderKnownAccount(
+      state.connectedEmail,
+      checkShowsConnectedAccount(
+        state?.connectionStatus,
+        state?.connectedEmail,
+      ) || state?.connected === true,
+    )
+    return
+  }
+  renderNotConnected()
+}
+
+function renderChecking() {
+  connectionRow.dataset.connected = 'checking'
+  connectionStatus.textContent = 'Checking connection…'
+  connectionEmail.textContent = ''
+  connectionEmail.hidden = true
+  disconnectButton.hidden = true
+  connectionButton.hidden = true
+}
+
+function renderKnownAccount(email, liveConnected) {
+  connectionRow.dataset.connected = liveConnected ? 'true' : 'false'
+  connectionStatus.textContent = liveConnected
+    ? 'Connected as'
+    : 'Calendar account'
   connectionEmail.textContent = email
   connectionEmail.title = email
+  connectionEmail.hidden = false
+  disconnectButton.hidden = false
   connectionButton.hidden = true
 }
 
@@ -100,6 +153,8 @@ function renderNotConnected() {
   connectionRow.dataset.connected = 'false'
   connectionStatus.textContent = 'Not connected'
   connectionEmail.textContent = ''
+  connectionEmail.hidden = true
+  disconnectButton.hidden = true
   connectionButton.hidden = false
 }
 

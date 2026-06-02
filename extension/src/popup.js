@@ -1,3 +1,10 @@
+import {
+  checkHasCachedPopupMeetings,
+  checkShowsAccountIdentity,
+  checkShowsConnectedAccount,
+  checkShowsFetchErrorScreen,
+  checkShowsPopupConnectScreen,
+} from './meeting-connection.js'
 import { getMeetingSettings } from './meeting-settings.js'
 
 const MESSAGE_TARGET = 'kool-kits-meeting-reminder'
@@ -67,7 +74,14 @@ function renderHeader(state) {
     return
   }
 
-  const connected = Boolean(state.connectedEmail)
+  const showsAccountIdentity = checkShowsAccountIdentity(
+    state.connectionStatus,
+    state.connectedEmail,
+  )
+  const liveConnected = checkShowsConnectedAccount(
+    state.connectionStatus,
+    state.connectedEmail,
+  )
 
   const brand = document.createElement('div')
   brand.className = 'pp-brand'
@@ -75,14 +89,14 @@ function renderHeader(state) {
 
   const acct = document.createElement('div')
   acct.className = 'pp-acct'
-  acct.dataset.connected = String(connected)
+  acct.dataset.connected = String(liveConnected)
   const dot = document.createElement('span')
   dot.className = 'dot'
   const email = spanWith(
     'pp-acct-email',
-    connected ? state.connectedEmail : 'Not connected',
+    showsAccountIdentity ? state.connectedEmail : 'Not connected',
   )
-  if (connected) {
+  if (showsAccountIdentity) {
     acct.title = state.connectedEmail
   }
   acct.append(dot, email)
@@ -111,18 +125,18 @@ function renderBody(state) {
   }
   meetingSection.style.display = ''
 
-  if (state.syncState === 'notConnected') {
+  const inProgress = state.inProgress ?? []
+  const upcoming = state.upcoming ?? []
+  const hasMeetings = checkHasCachedPopupMeetings(inProgress, upcoming)
+
+  if (checkShowsPopupConnectScreen(state.connectionStatus, hasMeetings)) {
     meetingSection.append(buildNotConnected())
     return
   }
 
-  const inProgress = state.inProgress ?? []
-  const upcoming = state.upcoming ?? []
-  const hasMeetings = inProgress.length > 0 || upcoming.length > 0
-
   // A transient fetch error keeps cached meetings; only surface the error banner
   // when there is nothing cached to fall back on.
-  if (state.syncState === 'error' && !hasMeetings) {
+  if (checkShowsFetchErrorScreen(state.connectionStatus) && !hasMeetings) {
     meetingSection.append(
       buildState(
         ICONS.alert,

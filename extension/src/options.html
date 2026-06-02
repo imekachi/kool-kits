@@ -58,27 +58,50 @@
           </div>
         </div>
 
-        <div
-          class="options-connection"
-          id="connection-row"
-          data-connected="false"
-        >
-          <span class="dot"></span>
-          <div class="options-connection-text">
-            <div class="options-connection-label" id="connection-status">
-              Checking connection…
-            </div>
-            <div class="options-connection-email" id="connection-email"></div>
-          </div>
-          <button
-            id="connection-button"
-            class="options-button"
-            type="button"
-            hidden
+        <footer class="options-meeting-footer">
+          <div
+            class="options-connection"
+            id="connection-row"
+            data-connected="checking"
           >
-            Open Google Calendar
-          </button>
-        </div>
+            <div class="options-connection-main">
+              <span class="dot" aria-hidden="true"></span>
+              <div
+                class="options-connection-text"
+                id="connection-status-region"
+                role="status"
+                aria-live="polite"
+              >
+                <div class="options-connection-label" id="connection-status">
+                  Checking connection…
+                </div>
+                <div
+                  class="options-connection-email"
+                  id="connection-email"
+                ></div>
+              </div>
+            </div>
+            <div class="options-connection-actions">
+              <button
+                id="disconnect-button"
+                class="options-button-text"
+                type="button"
+                hidden
+                aria-label="Disconnect extension from cached calendar"
+              >
+                Disconnect
+              </button>
+              <button
+                id="connection-button"
+                class="options-button options-button-primary"
+                type="button"
+                hidden
+              >
+                Open Google Calendar
+              </button>
+            </div>
+          </div>
+        </footer>
       </section>
     </main>
     <script type="module" src="options.js"></script>
