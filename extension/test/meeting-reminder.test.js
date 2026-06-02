@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { computeBadgeText, groupMeetings } from '../src/meeting-reminder.js'
+import {
+  checkMeetingOccursOnLocalDay,
+  computeBadgeText,
+  getLocalDayBounds,
+  getVisibleMeetings,
+  groupMeetings,
+  selectPopupMeetings,
+} from '../src/meeting-reminder.js'
 
 const MINUTE = 60_000
 
@@ -15,6 +22,45 @@ function meeting(overrides) {
     ...overrides,
   }
 }
+
+describe('getVisibleMeetings', () => {
+  it('excludes meetings that start on a future local day', () => {
+    const now = new Date(2026, 5, 2, 17, 6, 0).getTime()
+    const { end: dayEnd } = getLocalDayBounds(now)
+    const tomorrowMorning = meeting({
+      id: 'tomorrow',
+      start: dayEnd + (11 * 60 + 30) * MINUTE,
+      end: dayEnd + 12 * 60 * MINUTE,
+    })
+    const visible = getVisibleMeetings(
+      [
+        tomorrowMorning,
+        meeting({
+          id: 'ended',
+          start: now - 120 * MINUTE,
+          end: now - 60 * MINUTE,
+        }),
+      ],
+      now,
+    )
+    assert.deepEqual(visible, [])
+  })
+
+  it('keeps not-yet-ended meetings still on the local day', () => {
+    const now = new Date(2026, 5, 2, 17, 6, 0).getTime()
+    const laterToday = meeting({
+      id: 'later',
+      start: now + 30 * MINUTE,
+      end: now + 90 * MINUTE,
+    })
+    const visible = getVisibleMeetings([laterToday], now)
+    assert.deepEqual(
+      visible.map((m) => m.id),
+      ['later'],
+    )
+    assert.equal(checkMeetingOccursOnLocalDay(laterToday, now), true)
+  })
+})
 
 describe('groupMeetings', () => {
   const now = 100 * MINUTE
@@ -50,6 +96,58 @@ describe('groupMeetings', () => {
   })
 })
 
+describe('selectPopupMeetings', () => {
+  const now = 100 * MINUTE
+
+  it('keeps every in-progress meeting and only the next start slot', () => {
+    const meetings = [
+      meeting({ id: 'live', start: 95 * MINUTE, end: 110 * MINUTE }),
+      meeting({ id: 'later', start: 120 * MINUTE, end: 130 * MINUTE }),
+      meeting({ id: 'soon', start: 110 * MINUTE, end: 115 * MINUTE }),
+    ]
+    const { inProgress, upcoming } = selectPopupMeetings(meetings, now)
+    assert.deepEqual(
+      inProgress.map((m) => m.id),
+      ['live'],
+    )
+    assert.deepEqual(
+      upcoming.map((m) => m.id),
+      ['soon'],
+    )
+  })
+
+  it('does not surface tomorrow when today has no remaining meetings', () => {
+    const now = new Date(2026, 5, 2, 17, 6, 0).getTime()
+    const { end: dayEnd } = getLocalDayBounds(now)
+    const { inProgress, upcoming } = selectPopupMeetings(
+      [
+        meeting({
+          id: 'tomorrow',
+          start: dayEnd + (11 * 60 + 30) * MINUTE,
+          end: dayEnd + 12 * 60 * MINUTE,
+        }),
+      ],
+      now,
+    )
+    assert.deepEqual(inProgress, [])
+    assert.deepEqual(upcoming, [])
+  })
+
+  it('includes every meeting that shares the next start time', () => {
+    const sameStart = 110 * MINUTE
+    const meetings = [
+      meeting({ id: 'a', start: sameStart, end: sameStart + 30 * MINUTE }),
+      meeting({ id: 'b', start: sameStart, end: sameStart + 45 * MINUTE }),
+      meeting({ id: 'later', start: 130 * MINUTE, end: 140 * MINUTE }),
+    ]
+    const { upcoming } = selectPopupMeetings(meetings, now)
+    assert.deepEqual(
+      upcoming.map((m) => m.id),
+      ['a', 'b'],
+    )
+  })
+})
+
 describe('computeBadgeText', () => {
   const now = 100 * MINUTE
   const lead = 5
@@ -60,7 +158,9 @@ describe('computeBadgeText', () => {
   })
 
   it('counts down whole minutes within the lead window', () => {
-    const meetings = [meeting({ start: now + 3 * MINUTE, end: now + 30 * MINUTE })]
+    const meetings = [
+      meeting({ start: now + 3 * MINUTE, end: now + 30 * MINUTE }),
+    ]
     assert.equal(computeBadgeText(meetings, now, lead), '3')
   })
 
@@ -80,7 +180,11 @@ describe('computeBadgeText', () => {
   it('prefers the imminent upcoming start over an in-progress meeting', () => {
     const meetings = [
       meeting({ id: 'live', start: now - 2 * MINUTE, end: now + 20 * MINUTE }),
-      meeting({ id: 'back2back', start: now + 2 * MINUTE, end: now + 40 * MINUTE }),
+      meeting({
+        id: 'back2back',
+        start: now + 2 * MINUTE,
+        end: now + 40 * MINUTE,
+      }),
     ]
     assert.equal(computeBadgeText(meetings, now, lead), '2')
   })

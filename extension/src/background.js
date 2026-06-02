@@ -7,7 +7,7 @@ import {
   fetchBootstrap,
   fetchTodaysEvents,
 } from './calendar-session.js'
-import { groupMeetings } from './meeting-reminder.js'
+import { selectPopupMeetings } from './meeting-reminder.js'
 import {
   ConnectionStatus,
   buildMeetingCachePatchForBootstrapFailure,
@@ -1185,7 +1185,7 @@ async function getMeetingPopupState() {
   // opened during a transient error or brief session lapse keeps showing the
   // last known list rather than collapsing.
   const groups = Array.isArray(cache.meetings)
-    ? groupMeetings(cache.meetings, now)
+    ? selectPopupMeetings(cache.meetings, now)
     : { inProgress: [], upcoming: [] }
 
   return {

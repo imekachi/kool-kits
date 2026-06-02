@@ -126,7 +126,8 @@ export function getSelfResponse(node, email) {
         Array.isArray(attendee) && attendee[ATTENDEE_EMAIL] === email,
     ) ??
     attendees.find(
-      (attendee) => Array.isArray(attendee) && attendee[ATTENDEE_IS_SELF] === true,
+      (attendee) =>
+        Array.isArray(attendee) && attendee[ATTENDEE_IS_SELF] === true,
     )
 
   if (!self) {
@@ -267,8 +268,18 @@ function buildEventRangeBody({ email, version, startDay, endDay }) {
   return `f.req=${encodeURIComponent(request)}&cwuik=10&hl=en`
 }
 
+function getLocalDayIndex(now = Date.now()) {
+  const date = new Date(now)
+  const localMidnight = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  ).getTime()
+  return Math.floor(localMidnight / DAY_MS)
+}
+
 export async function fetchTodaysEvents({ email, version, meetingFilter }) {
-  const today = Math.floor(Date.now() / DAY_MS)
+  const today = getLocalDayIndex()
   const response = await fetch(EVENTS_URL, {
     method: 'POST',
     credentials: 'include',
