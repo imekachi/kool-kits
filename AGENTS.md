@@ -15,6 +15,16 @@
 
 - **Reserve `is`/`has`/`was` prefixes for boolean variables.** Functions that return booleans should use a `check` prefix (e.g., `checkIsSomething()` not `isSomething()`).
 
+### Playwright MCP artifacts
+
+When you pass an explicit `filename` to `browser_take_screenshot` (or `filePath` to Chrome DevTools `take_screenshot`), the server resolves it relative to the workspace root—not under `outputDir`.
+
+**Always keep browser verification artifacts under `.playwright-mcp/`:**
+
+- `browser_take_screenshot`: use `filename: ".playwright-mcp/<descriptive-name>.png"` (never bare names like `options-connected.png` at repo root).
+- `browser_run_code_unsafe` / Playwright scripts: save screenshots with paths under `.playwright-mcp/`.
+- Do not use Write or other file tools to save verification PNGs at the repo root.
+
 ## Agent workflow
 If you are a subagent, skip this section.
 
