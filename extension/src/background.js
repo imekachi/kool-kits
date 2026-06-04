@@ -8,7 +8,10 @@ import {
   fetchBootstrap,
   fetchTodaysEvents,
 } from './calendar-session.js'
-import { selectPopupMeetings } from './meeting-reminder.js'
+import {
+  getNextReminderTransitionAt,
+  getReminderView,
+} from './meeting-reminder.js'
 import {
   ConnectionStatus,
   buildMeetingCachePatchForBootstrapFailure,
@@ -785,7 +788,7 @@ const MEETING_CALENDAR_CONNECT_PENDING_KEY = 'meetingCalendarConnectPending'
 const MEETING_REMINDER_FETCH_ALARM = 'meeting-reminder-fetch'
 const MEETING_REMINDER_TICK_ALARM = 'meeting-reminder-tick'
 const MEETING_REMINDER_FETCH_PERIOD_MINUTES = 5
-const MEETING_REMINDER_TICK_PERIOD_MINUTES = 1
+const MEETING_REMINDER_MIN_DISPLAY_DELAY_MS = 1_000
 const MEETING_BADGE_BACKGROUND_COLOR = '#e5484d'
 const MEETING_BADGE_TEXT_COLOR = '#ffffff'
 
@@ -807,7 +810,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 
   if (alarm.name === MEETING_REMINDER_TICK_ALARM) {
-    void refreshMeetingBadge()
+    void refreshMeetingReminderDisplay()
   }
 })
 
@@ -871,9 +874,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function initializeMeetingReminder() {
   await chrome.alarms.create(MEETING_REMINDER_FETCH_ALARM, {
     periodInMinutes: MEETING_REMINDER_FETCH_PERIOD_MINUTES,
-  })
-  await chrome.alarms.create(MEETING_REMINDER_TICK_ALARM, {
-    periodInMinutes: MEETING_REMINDER_TICK_PERIOD_MINUTES,
   })
   await syncMeetings()
 }
@@ -995,10 +995,12 @@ function createMeetingSyncWriters(syncContext) {
 
     if (settings.enabled) {
       await refreshMeetingBadgeFromSync(syncGeneration)
+      await scheduleNextReminderDisplayRefresh()
       return
     }
 
     await clearMeetingBadgeFromSync(syncGeneration)
+    await chrome.alarms.clear(MEETING_REMINDER_TICK_ALARM)
   }
 
   return { applyMeetingCacheReplacement, finishSync }
@@ -1086,6 +1088,45 @@ async function fetchAndStoreMeetingEvents(syncContext, bootstrap) {
       await finishSync()
     }
   }
+}
+
+async function refreshMeetingReminderDisplay() {
+  await refreshMeetingBadge()
+  await scheduleNextReminderDisplayRefresh()
+}
+
+// Periodic chrome.alarms cannot repeat below one minute; schedule the next moment
+// badge or popup grouping can change (start, end, lead window, minute rollover).
+async function scheduleNextReminderDisplayRefresh() {
+  await chrome.alarms.clear(MEETING_REMINDER_TICK_ALARM)
+
+  const settings = await getMeetingSettings()
+  if (!settings.enabled) {
+    return
+  }
+
+  const cache = await getMeetingCache()
+  if (
+    !checkKeepsCachedMeetingsOnBadge(cache.connectionStatus) ||
+    !Array.isArray(cache.meetings) ||
+    cache.meetings.length === 0
+  ) {
+    return
+  }
+
+  const now = Date.now()
+  const nextAt = getNextReminderTransitionAt(
+    cache.meetings,
+    now,
+    settings.leadMinutes,
+  )
+  if (nextAt == null) {
+    return
+  }
+
+  await chrome.alarms.create(MEETING_REMINDER_TICK_ALARM, {
+    when: Math.max(now + MEETING_REMINDER_MIN_DISPLAY_DELAY_MS, nextAt),
+  })
 }
 
 async function refreshMeetingBadge() {
@@ -1186,16 +1227,16 @@ async function getMeetingPopupState() {
   // Group whenever we have cached meetings (any non-disabled state), so a popup
   // opened during a transient error or brief session lapse keeps showing the
   // last known list rather than collapsing.
-  const groups = Array.isArray(cache.meetings)
-    ? selectPopupMeetings(cache.meetings, now)
+  const view = Array.isArray(cache.meetings)
+    ? getReminderView(cache.meetings, now, settings.leadMinutes)
     : { inProgress: [], upcoming: [] }
 
   return {
     enabled: settings.enabled,
     connectionStatus: cache.connectionStatus,
     connectedEmail: cache.connectedEmail,
-    inProgress: groups.inProgress,
-    upcoming: groups.upcoming,
+    inProgress: view.inProgress,
+    upcoming: view.upcoming,
   }
 }
 
@@ -1357,6 +1398,7 @@ async function disconnectMeetingCalendar() {
     lastSyncedAt: Date.now(),
   })
   await clearMeetingBadge()
+  await chrome.alarms.clear(MEETING_REMINDER_TICK_ALARM)
   const state = await getMeetingPopupState()
   return { ok: true, ...state }
 }

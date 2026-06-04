@@ -5,6 +5,8 @@ import {
   checkMeetingOccursOnLocalDay,
   computeBadgeText,
   getLocalDayBounds,
+  getNextReminderTransitionAt,
+  getReminderView,
   getVisibleMeetings,
   groupMeetings,
   selectPopupMeetings,
@@ -144,6 +146,75 @@ describe('selectPopupMeetings', () => {
     assert.deepEqual(
       upcoming.map((m) => m.id),
       ['a', 'b'],
+    )
+  })
+})
+
+describe('getReminderView', () => {
+  const now = 100 * MINUTE
+  const lead = 5
+
+  it('returns popup groups and badge text for the same moment', () => {
+    const meetings = [
+      meeting({ id: 'live', start: now - 2 * MINUTE, end: now + 20 * MINUTE }),
+      meeting({
+        id: 'soon',
+        start: now + 3 * MINUTE,
+        end: now + 40 * MINUTE,
+      }),
+    ]
+    const view = getReminderView(meetings, now, lead)
+    assert.equal(view.badgeText, '3m')
+    assert.deepEqual(
+      view.inProgress.map((m) => m.id),
+      ['live'],
+    )
+    assert.deepEqual(
+      view.upcoming.map((m) => m.id),
+      ['soon'],
+    )
+  })
+})
+
+describe('getNextReminderTransitionAt', () => {
+  const now = new Date(2026, 5, 2, 10, 0, 0).getTime()
+  const lead = 5
+
+  it('returns the soonest meeting end while in progress', () => {
+    const end = now + 8 * MINUTE
+    const meetings = [
+      meeting({ start: now - 2 * MINUTE, end, id: 'live' }),
+      meeting({
+        start: now + 30 * MINUTE,
+        end: now + 60 * MINUTE,
+        id: 'later',
+      }),
+    ]
+    assert.equal(getNextReminderTransitionAt(meetings, now, lead), end)
+  })
+
+  it('returns the meeting start when it is the next transition', () => {
+    const start = now + 4 * MINUTE
+    const at = start - 30_000
+    const meetings = [meeting({ start, end: start + 30 * MINUTE })]
+    assert.equal(getNextReminderTransitionAt(meetings, at, lead), start)
+  })
+
+  it('returns the lead-window edge before the countdown appears', () => {
+    const start = now + 8 * MINUTE
+    const meetings = [meeting({ start, end: start + 30 * MINUTE })]
+    assert.equal(
+      getNextReminderTransitionAt(meetings, now, lead),
+      start - lead * MINUTE,
+    )
+  })
+
+  it('returns the next minute boundary for an imminent countdown badge', () => {
+    const start = now + 2 * MINUTE + 15_000
+    const meetings = [meeting({ start, end: start + 30 * MINUTE })]
+    assert.equal(
+      getNextReminderTransitionAt(meetings, now, lead),
+      start - 2 * MINUTE,
     )
   })
 })

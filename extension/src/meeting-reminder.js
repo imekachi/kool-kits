@@ -50,6 +50,65 @@ export function selectPopupMeetings(meetings, now) {
   }
 }
 
+/** Shared popup groups and badge text for a moment in time (no enable/connection gating). */
+export function getReminderView(meetings, now, leadMinutes) {
+  const { inProgress, upcoming } = selectPopupMeetings(meetings, now)
+  return {
+    inProgress,
+    upcoming,
+    badgeText: computeBadgeText(meetings, now, leadMinutes),
+  }
+}
+
+const MIN_SCHEDULE_DELAY_MS = 1_000
+
+/** Next timestamp when badge or popup grouping can change; null if none soon. */
+export function getNextReminderTransitionAt(meetings, now, leadMinutes) {
+  const leadMs = leadMinutes * MINUTE_MS
+  const candidates = []
+  const visible = getVisibleMeetings(meetings, now)
+  const { upcoming } = groupMeetings(meetings, now)
+  const nextUpcoming = upcoming[0]
+
+  const { end: dayEnd } = getLocalDayBounds(now)
+  if (dayEnd > now) {
+    candidates.push(dayEnd)
+  }
+
+  for (const meeting of visible) {
+    if (meeting.end > now) {
+      candidates.push(meeting.end)
+    }
+    if (meeting.start > now) {
+      candidates.push(meeting.start)
+      const enterLead = meeting.start - leadMs
+      if (enterLead > now) {
+        candidates.push(enterLead)
+      }
+    }
+  }
+
+  if (
+    nextUpcoming &&
+    nextUpcoming.start > now &&
+    nextUpcoming.start - now <= leadMs
+  ) {
+    const minutesUntil = Math.max(
+      1,
+      Math.ceil((nextUpcoming.start - now) / MINUTE_MS),
+    )
+    if (minutesUntil > 1) {
+      candidates.push(nextUpcoming.start - (minutesUntil - 1) * MINUTE_MS)
+    }
+  }
+
+  const future = candidates.filter((time) => time > now)
+  if (future.length === 0) {
+    return null
+  }
+  return Math.min(...future)
+}
+
 export function computeBadgeText(meetings, now, leadMinutes) {
   const { inProgress, upcoming } = groupMeetings(meetings, now)
   const leadMs = leadMinutes * MINUTE_MS

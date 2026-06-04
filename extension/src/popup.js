@@ -8,6 +8,7 @@ import {
 import { getMeetingSettings } from './meeting-settings.js'
 
 const MESSAGE_TARGET = 'kool-kits-meeting-reminder'
+const MEETING_REMINDER_CACHE_KEY = 'meetingReminderCache'
 const MINUTE_MS = 60_000
 const RERENDER_INTERVAL_MS = 30_000
 
@@ -15,15 +16,20 @@ const head = document.getElementById('pp-head')
 const meetingSection = document.getElementById('meeting-section')
 const settingsButton = document.getElementById('settings-button')
 
-// Keep the latest known state and lead time so the 30s tick can recompute
-// countdowns from cache without another round trip to the service worker.
-let latestState
 let leadMinutes = 5
 let rerenderTimer
 let connectInFlight = false
 
 settingsButton.addEventListener('click', () => {
   chrome.runtime.openOptionsPage()
+})
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes[MEETING_REMINDER_CACHE_KEY]) {
+    return
+  }
+
+  void refreshPopupState()
 })
 
 async function initializePopup() {
@@ -48,14 +54,20 @@ async function initializePopup() {
 }
 
 function render(state) {
-  latestState = state
   renderHeader(state)
   renderBody(state)
   scheduleRerender(state)
 }
 
-// The list and countdowns only need to advance while there are meetings to show;
-// avoid an idle timer in the empty/disconnected states.
+async function refreshPopupState() {
+  const state = await sendMessage({ type: 'get-popup-state' })
+  if (state) {
+    render(state)
+  }
+}
+
+// Re-group from cache on a timer while open (start/end transitions) and refresh
+// countdown copy between those transitions; avoid polling when idle.
 function scheduleRerender(state) {
   clearInterval(rerenderTimer)
   const live =
@@ -63,7 +75,7 @@ function scheduleRerender(state) {
     ((state.inProgress?.length ?? 0) > 0 || (state.upcoming?.length ?? 0) > 0)
   if (live) {
     rerenderTimer = setInterval(() => {
-      renderBody(latestState)
+      void refreshPopupState()
     }, RERENDER_INTERVAL_MS)
   }
 }
