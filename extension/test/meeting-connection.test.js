@@ -634,7 +634,7 @@ describe('connection UI helpers', () => {
         now: 500,
         leadMinutes: 5,
       }),
-      '1',
+      '1m',
     )
   })
 

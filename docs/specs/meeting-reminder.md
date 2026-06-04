@@ -37,7 +37,7 @@ A separate, frequent recompute step updates the toolbar badge from the cached ev
 When the feature is disabled, there is never a badge. Otherwise the badge communicates urgency of the single most urgent meeting:
 
 - When no meeting is within the configured lead window and none is in progress, there is no badge.
-- When a meeting will start within the configured lead time, the badge shows the whole number of minutes until it starts, counting down, on a red background.
+- When a meeting will start within the configured lead time, the badge shows the whole number of minutes until it starts with an `m` suffix (for example `3m`), counting down, on a red background.
 - When a meeting is in progress and nothing upcoming is within the lead window, the badge shows `now` on a red background.
 
 When meetings are concurrent or back-to-back, the soonest upcoming start within the lead window wins the badge, because the action the user most needs to take is joining the meeting that is about to begin. An in-progress meeting only drives the badge when there is nothing imminent to start.

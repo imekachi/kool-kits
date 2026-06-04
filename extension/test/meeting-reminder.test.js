@@ -161,12 +161,12 @@ describe('computeBadgeText', () => {
     const meetings = [
       meeting({ start: now + 3 * MINUTE, end: now + 30 * MINUTE }),
     ]
-    assert.equal(computeBadgeText(meetings, now, lead), '3')
+    assert.equal(computeBadgeText(meetings, now, lead), '3m')
   })
 
   it('rounds a partial minute up and never below 1', () => {
     const meetings = [meeting({ start: now + 30_000, end: now + 30 * MINUTE })]
-    assert.equal(computeBadgeText(meetings, now, lead), '1')
+    assert.equal(computeBadgeText(meetings, now, lead), '1m')
   })
 
   it('shows now when in progress and nothing upcoming is within the window', () => {
@@ -186,6 +186,6 @@ describe('computeBadgeText', () => {
         end: now + 40 * MINUTE,
       }),
     ]
-    assert.equal(computeBadgeText(meetings, now, lead), '2')
+    assert.equal(computeBadgeText(meetings, now, lead), '2m')
   })
 })

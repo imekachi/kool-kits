@@ -60,7 +60,7 @@ export function computeBadgeText(meetings, now, leadMinutes) {
       1,
       Math.ceil((nextUpcoming.start - now) / MINUTE_MS),
     )
-    return String(minutesUntilStart)
+    return `${minutesUntilStart}m`
   }
 
   if (inProgress.length > 0) {
