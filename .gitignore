@@ -23,8 +23,8 @@ dist/
 # AI tools
 docs/plans/*
 docs/superpowers/*
-.mcp.json
+docs/references
+.superpowers
 .claude/settings.json
-.cursor/mcp.json
 # Added by code-review-graph
 .code-review-graph/

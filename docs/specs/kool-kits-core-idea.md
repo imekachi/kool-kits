@@ -10,6 +10,7 @@ Arc and other browsers can inspire features, but Kool Kits is not limited to Arc
 
 - [Copy Current URL](copy-current-url.md) defines the first shipped workflow: a keyboard command that copies the active tab URL and shows lightweight feedback when possible.
 - [Recent Tab Switcher](recent-tab-switcher.md) defines a future workflow for cycling through recently active tabs with a visible switcher while holding the modifier key.
+- [Meeting Reminder](meeting-reminder.md) defines a workflow that surfaces today's Google Calendar meetings in the toolbar action, with a red urgency badge and a popup to see and join in-progress and upcoming meetings.
 
 ## Product Principles
 

@@ -15,18 +15,34 @@
 
 - **Reserve `is`/`has`/`was` prefixes for boolean variables.** Functions that return booleans should use a `check` prefix (e.g., `checkIsSomething()` not `isSomething()`).
 
+### Playwright MCP artifacts
+
+When you pass an explicit `filename` to `browser_take_screenshot` (or `filePath` to Chrome DevTools `take_screenshot`), the server resolves it relative to the workspace root—not under `outputDir`.
+
+**Always keep browser verification artifacts under `.playwright-mcp/`:**
+
+- `browser_take_screenshot`: use `filename: ".playwright-mcp/<descriptive-name>.png"` (never bare names like `options-connected.png` at repo root).
+- `browser_run_code_unsafe` / Playwright scripts: save screenshots with paths under `.playwright-mcp/`.
+- Do not use Write or other file tools to save verification PNGs at the repo root.
+
 ## Agent workflow
 If you are a subagent, skip this section.
 
 Use subagents when possible to do tasks in parallel(A) and avoid context pollution(B), and use the right model for the task. For example,
-- Reviewing works: B (inherit model)
-- Implementing code that already have details of what to do: A,B (composer 2.5 no fast)
-- Implementing code without much context: A,B (inherit model)
-- Researching, finding, running commands: A,B (composer 2.5 no fast)
+Models:
+- Top: Opus, GPT 5.5 , inherit (usually the model in the main session)
+- Mid: Sonnet, composer 2.5
+- Small: Haiku, composer 2.5
+
+Tasks:
+- Reviewing works -> B (Top model/inherit)
+- Implementing code that already have details of what to do -> A,B (Mid moel)
+- Implementing code without much context -> A,B (Top model/inherit model)
+- Researching, finding, running commands -> A,B (Mid model)
 
 Basically, 
-- do things more deterministic -> composer 2.5 (no fast)
-- do things needs thinking and decision making -> inherit model
+- do things more deterministic -> Mid model
+- do things needs thinking and decision making -> Top model/inherit model
 
 Before executing, think what would be the best workflow to achieve that. DoItYourself? or orchestrating?
 Be efficient, and produce quality output.

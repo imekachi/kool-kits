@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Kool Kits",
   "description": "Productivity shortcuts for Chrome.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "icons": {
     "16": "icons/icon16.png",
     "24": "icons/icon24.png",
@@ -11,12 +11,14 @@
   },
   "action": {
     "default_title": "Kool Kits",
+    "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "24": "icons/icon24.png",
       "48": "icons/icon48.png"
     }
   },
+  "options_page": "src/options.html",
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
@@ -50,7 +52,8 @@
     "offscreen",
     "clipboardWrite",
     "storage",
-    "favicon"
+    "favicon",
+    "alarms"
   ],
-  "host_permissions": ["<all_urls>"]
+  "host_permissions": ["<all_urls>", "https://calendar.google.com/"]
 }
