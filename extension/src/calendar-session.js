@@ -161,6 +161,113 @@ function collectStrings(value, accumulator) {
   }
 }
 
+const RECURRENCE_SHORTHAND_ID_PATTERN = /_R\d{8}T/
+const EXPLICIT_INSTANCE_ID_PATTERN = /_(\d{8})T/
+
+export function checkIsRecurrenceShorthandId(id) {
+  return typeof id === 'string' && RECURRENCE_SHORTHAND_ID_PATTERN.test(id)
+}
+
+// Strip `_R…` recurrence shorthand or `_YYYYMMDD…` instance suffixes.
+export function getEventBaseId(id) {
+  if (typeof id !== 'string') {
+    return null
+  }
+
+  const recurrenceIndex = id.indexOf('_R')
+  if (recurrenceIndex !== -1) {
+    return id.slice(0, recurrenceIndex)
+  }
+
+  const instanceMatch = id.match(EXPLICIT_INSTANCE_ID_PATTERN)
+  if (instanceMatch) {
+    return id.slice(0, instanceMatch.index)
+  }
+
+  return id
+}
+
+function getMeetingSourceRank(id) {
+  if (typeof id !== 'string') {
+    return 0
+  }
+  if (
+    EXPLICIT_INSTANCE_ID_PATTERN.test(id) &&
+    !checkIsRecurrenceShorthandId(id)
+  ) {
+    return 2
+  }
+  if (checkIsRecurrenceShorthandId(id)) {
+    return 1
+  }
+  return 0
+}
+
+function getLocalDayStartFromTimestamp(timestamp) {
+  const date = new Date(timestamp)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+// Single-day fetches return `_R…` nodes whose start/end are the series anchor.
+// Shift wall-clock time onto the requested local day.
+export function shiftClockTimeToLocalDay(anchorMs, localDayStart) {
+  const anchor = new Date(anchorMs)
+  const day = new Date(localDayStart)
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    anchor.getHours(),
+    anchor.getMinutes(),
+    anchor.getSeconds(),
+    anchor.getMilliseconds(),
+  ).getTime()
+}
+
+function resolveMeetingTimes(node, localDayStart) {
+  const anchorStart = deepFindEpochMs(node[INDEX_START])
+  const anchorEnd = deepFindEpochMs(node[INDEX_END])
+  if (checkIsRecurrenceShorthandId(node[INDEX_ID])) {
+    return {
+      start: shiftClockTimeToLocalDay(anchorStart, localDayStart),
+      end: shiftClockTimeToLocalDay(anchorEnd, localDayStart),
+    }
+  }
+  return { start: anchorStart, end: anchorEnd }
+}
+
+function dedupeMeetings(meetings) {
+  const baseIdsWithConcreteNodes = new Set()
+  for (const meeting of meetings) {
+    if (getMeetingSourceRank(meeting.id) > 0) {
+      baseIdsWithConcreteNodes.add(getEventBaseId(meeting.id))
+    }
+  }
+
+  const candidates = meetings.filter((meeting) => {
+    if (
+      getMeetingSourceRank(meeting.id) === 0 &&
+      baseIdsWithConcreteNodes.has(getEventBaseId(meeting.id))
+    ) {
+      return false
+    }
+    return true
+  })
+
+  const best = new Map()
+  for (const meeting of candidates) {
+    const baseId = getEventBaseId(meeting.id)
+    const dayKey = getLocalDayStartFromTimestamp(meeting.start)
+    const key = `${baseId}:${dayKey}`
+    const rank = getMeetingSourceRank(meeting.id)
+    const existing = best.get(key)
+    if (!existing || rank > existing.rank) {
+      best.set(key, { meeting, rank })
+    }
+  }
+  return [...best.values()].map(({ meeting }) => meeting)
+}
+
 function resolveNodeJoinLink(node) {
   const meetLink =
     typeof node[INDEX_MEET_LINK] === 'string' ? node[INDEX_MEET_LINK] : null
@@ -179,12 +286,13 @@ function resolveNodeJoinLink(node) {
   return resolveJoinLink({ meetLink, entryPoints, text: textParts.join('\n') })
 }
 
-function normalizeNode(node, email) {
+function normalizeNode(node, email, localDayStart) {
+  const { start, end } = resolveMeetingTimes(node, localDayStart)
   return {
     id: node[INDEX_ID] ?? null,
     title: node[INDEX_TITLE] || '(No title)',
-    start: deepFindEpochMs(node[INDEX_START]),
-    end: deepFindEpochMs(node[INDEX_END]),
+    start,
+    end,
     joinUrl: resolveNodeJoinLink(node),
     selfResponse: getSelfResponse(node, email),
   }
@@ -192,20 +300,35 @@ function normalizeNode(node, email) {
 
 // Parse-defensively: drop any node missing a usable start/end rather than
 // throwing, so one malformed node can never break the whole sync.
-export function normalizeEvents(nodes, email) {
-  return (Array.isArray(nodes) ? nodes : [])
+function getLocalDayStart(now = Date.now()) {
+  const date = new Date(now)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+export function normalizeEvents(
+  nodes,
+  email,
+  localDayStart = getLocalDayStart(),
+) {
+  const meetings = (Array.isArray(nodes) ? nodes : [])
     .filter((node) => checkIsTimedMeeting(node))
-    .map((node) => normalizeNode(node, email))
+    .map((node) => normalizeNode(node, email, localDayStart))
     .filter(
       (meeting) =>
         typeof meeting.start === 'number' && typeof meeting.end === 'number',
     )
+  return dedupeMeetings(meetings)
 }
 
 // Normalize, apply the response filter, and drop the internal selfResponse from
 // the cached meeting shape (the popup and badge only need title/time/link).
-export function selectMeetings(nodes, email, meetingFilter) {
-  return normalizeEvents(nodes, email)
+export function selectMeetings(
+  nodes,
+  email,
+  meetingFilter,
+  localDayStart = getLocalDayStart(),
+) {
+  return normalizeEvents(nodes, email, localDayStart)
     .filter((meeting) => checkPassesFilter(meeting.selfResponse, meetingFilter))
     .map(({ selfResponse, ...meeting }) => meeting)
 }
@@ -299,6 +422,7 @@ export async function fetchTodaysEvents({ email, version, meetingFilter }) {
     throw new Error(`calendar events fetch failed: ${response.status}`)
   }
 
+  const localDayStart = getLocalDayStart()
   const nodes = parseEventRangeResponse(await response.text())
-  return selectMeetings(nodes, email, meetingFilter)
+  return selectMeetings(nodes, email, meetingFilter, localDayStart)
 }

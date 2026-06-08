@@ -3,24 +3,33 @@ import { describe, it } from 'node:test'
 
 import {
   checkIsConnected,
+  checkIsRecurrenceShorthandId,
   checkIsTimedMeeting,
   checkPassesFilter,
+  getEventBaseId,
   getSelfResponse,
   normalizeEvents,
   parseAccountEmail,
   parseClientVersion,
   parseEventRangeResponse,
   selectMeetings,
+  shiftClockTimeToLocalDay,
 } from '../src/calendar-session.js'
+import { getVisibleMeetings } from '../src/meeting-reminder.js'
 import {
   ALL_EVENT_NODES,
   CONNECTED_BOOTSTRAP_HTML,
   DESCRIPTION_ZOOM_NODE,
   EVENT_NODES,
   NOT_CONNECTED_BOOTSTRAP_HTML,
+  RECURRENCE_INSTANCE_NODE,
+  RECURRENCE_MASTER_NODE,
+  RECURRENCE_SHORTHAND_NODE,
   SELF_EMAIL,
   wrapEventRangeResponse,
 } from './fixtures/calendar-session.js'
+
+const JUNE_8_2026_START = new Date(2026, 5, 8).getTime()
 
 describe('bootstrap parsing', () => {
   it('extracts the session account email', () => {
@@ -72,7 +81,10 @@ describe('checkIsTimedMeeting', () => {
   })
 
   it('excludes object-titled working-location entries', () => {
-    assert.equal(checkIsTimedMeeting(EVENT_NODES.workingLocationObjTitle), false)
+    assert.equal(
+      checkIsTimedMeeting(EVENT_NODES.workingLocationObjTitle),
+      false,
+    )
   })
 })
 
@@ -101,6 +113,38 @@ describe('checkPassesFilter', () => {
   it('all keeps every response', () => {
     assert.equal(checkPassesFilter(1, 'all'), true)
     assert.equal(checkPassesFilter(null, 'all'), true)
+  })
+})
+
+describe('recurring event ids', () => {
+  it('detects recurrence shorthand ids', () => {
+    assert.equal(
+      checkIsRecurrenceShorthandId('evt-series_R20260518T030000'),
+      true,
+    )
+    assert.equal(
+      checkIsRecurrenceShorthandId('evt-series_20260608T030000Z'),
+      false,
+    )
+  })
+
+  it('strips shorthand and instance suffixes for dedupe', () => {
+    assert.equal(getEventBaseId('evt-series_R20260518T030000'), 'evt-series')
+    assert.equal(getEventBaseId('evt-series_20260608T030000Z'), 'evt-series')
+    assert.equal(getEventBaseId('evt-series'), 'evt-series')
+  })
+
+  it('shifts anchor wall-clock onto the requested local day', () => {
+    const anchorStart = 1779073200000
+    const anchorEnd = 1779076800000
+    assert.equal(
+      shiftClockTimeToLocalDay(anchorStart, JUNE_8_2026_START),
+      new Date(2026, 5, 8, 10, 0).getTime(),
+    )
+    assert.equal(
+      shiftClockTimeToLocalDay(anchorEnd, JUNE_8_2026_START),
+      new Date(2026, 5, 8, 11, 0).getTime(),
+    )
   })
 })
 
@@ -138,6 +182,45 @@ describe('normalizeEvents', () => {
   it('leaves joinUrl null when no link is present', () => {
     const meetings = normalizeEvents([EVENT_NODES.noLink], SELF_EMAIL)
     assert.equal(meetings[0].joinUrl, null)
+  })
+
+  it('expands recurrence shorthand onto the fetch local day', () => {
+    const meetings = normalizeEvents(
+      [RECURRENCE_SHORTHAND_NODE],
+      SELF_EMAIL,
+      JUNE_8_2026_START,
+    )
+    assert.equal(meetings.length, 1)
+    assert.equal(meetings[0].start, new Date(2026, 5, 8, 10, 0).getTime())
+    assert.equal(meetings[0].end, new Date(2026, 5, 8, 11, 0).getTime())
+  })
+
+  it('prefers explicit instances over shorthand and bare masters', () => {
+    const meetings = normalizeEvents(
+      [
+        RECURRENCE_SHORTHAND_NODE,
+        RECURRENCE_INSTANCE_NODE,
+        RECURRENCE_MASTER_NODE,
+      ],
+      SELF_EMAIL,
+      JUNE_8_2026_START,
+    )
+    assert.equal(meetings.length, 1)
+    assert.equal(meetings[0].id, 'evt-series_20260608T030000Z')
+    assert.equal(meetings[0].start, 1780889400000)
+    assert.equal(meetings[0].end, 1780891200000)
+  })
+
+  it('keeps shorthand when it is the only node for the series', () => {
+    const now = new Date(2026, 5, 8, 9, 30).getTime()
+    const meetings = normalizeEvents(
+      [RECURRENCE_SHORTHAND_NODE],
+      SELF_EMAIL,
+      JUNE_8_2026_START,
+    )
+    const visible = getVisibleMeetings(meetings, now)
+    assert.equal(visible.length, 1)
+    assert.equal(visible[0].title, 'Weekly Standup')
   })
 })
 

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Kool Kits",
   "description": "Productivity shortcuts for Chrome.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icons": {
     "16": "icons/icon16.png",
     "24": "icons/icon24.png",

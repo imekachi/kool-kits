@@ -33,7 +33,10 @@ function buildAcceptedMeet() {
   const node = emptyNode()
   node[0] = 'evt-accepted-meet'
   node[5] = 'Meeting A'
-  node[20] = [attendee({ email: COLLEAGUE_EMAIL, response: 3 }), selfAttendee(3)]
+  node[20] = [
+    attendee({ email: COLLEAGUE_EMAIL, response: 3 }),
+    selfAttendee(3),
+  ]
   node[35] = [null, [1778818500000], 'Asia/Bangkok']
   node[36] = [null, [1778822100000], 'Asia/Bangkok']
   node[45] = 'https://meet.google.com/aaa-bbbb-ccc'
@@ -48,7 +51,10 @@ function buildAcceptedZoom() {
   const node = emptyNode()
   node[0] = 'evt-accepted-zoom'
   node[5] = 'Meeting B'
-  node[20] = [attendee({ email: COLLEAGUE_EMAIL, response: 3 }), selfAttendee(3)]
+  node[20] = [
+    attendee({ email: COLLEAGUE_EMAIL, response: 3 }),
+    selfAttendee(3),
+  ]
   node[35] = [null, [1775012400000], 'Asia/Bangkok']
   node[36] = [null, [1775016000000], 'Asia/Bangkok']
   node[45] = null
@@ -151,6 +157,50 @@ function buildDescriptionZoom() {
 }
 
 export const DESCRIPTION_ZOOM_NODE = buildDescriptionZoom()
+
+// Recurring meeting returned as `_R…` shorthand on a single-day fetch. Start/end
+// carry the series anchor (May 18 10:00–11:00 Bangkok), not today's instance.
+function buildRecurrenceShorthand() {
+  const node = emptyNode()
+  node[0] = 'evt-series_R20260518T030000'
+  node[5] = 'Weekly Standup'
+  node[20] = [selfAttendee(0)]
+  node[35] = [null, [1779073200000], 'Asia/Bangkok']
+  node[36] = [null, [1779076800000], 'Asia/Bangkok']
+  node[45] = 'https://meet.google.com/series-standup'
+  node[82] = 0
+  return node
+}
+
+// Expanded instance for the same series on a specific day.
+function buildRecurrenceInstance() {
+  const node = emptyNode()
+  node[0] = 'evt-series_20260608T030000Z'
+  node[5] = 'Weekly Standup'
+  node[20] = [selfAttendee(0)]
+  node[35] = [null, [1780889400000], 'Asia/Bangkok']
+  node[36] = [null, [1780891200000], 'Asia/Bangkok']
+  node[45] = 'https://meet.google.com/series-standup'
+  node[82] = 0
+  return node
+}
+
+// Bare series master with stale anchor times.
+function buildRecurrenceMaster() {
+  const node = emptyNode()
+  node[0] = 'evt-series'
+  node[5] = 'Weekly Standup'
+  node[20] = [selfAttendee(0)]
+  node[35] = [null, [1760673600000], 'Asia/Bangkok']
+  node[36] = [null, [1760675400000], 'Asia/Bangkok']
+  node[45] = 'https://meet.google.com/series-standup'
+  node[82] = 0
+  return node
+}
+
+export const RECURRENCE_SHORTHAND_NODE = buildRecurrenceShorthand()
+export const RECURRENCE_INSTANCE_NODE = buildRecurrenceInstance()
+export const RECURRENCE_MASTER_NODE = buildRecurrenceMaster()
 
 export const EVENT_NODES = {
   acceptedMeet: buildAcceptedMeet(),
