@@ -414,7 +414,7 @@ export async function fetchTodaysEvents({ email, version, meetingFilter }) {
       email,
       version,
       startDay: today,
-      endDay: today + 1,
+      endDay: today,
     }),
   })
 
