@@ -485,7 +485,29 @@ describe('background recent tab switcher orchestration', () => {
     ])
   })
 
-  it('opens immediately while the current-tab refresh is still in flight', async () => {
+  it('flushes pending activation alarms for other tabs when opening the switcher', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 1, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+      initialRecentHistories: [{ tabIds: [1, 2], windowId: 10 }],
+      lastFocusedWindow: openableSwitcherWindow(),
+    })
+
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    harness.invokeTabActivated({ tabId: 1, windowId: 10 })
+    await flushAsyncWork()
+    assert.ok(harness.hasScheduledAlarm('recent-tab-thumbnail:10:2'))
+
+    harness.invokeRecentTabSwitcherCommand()
+    await flushAsyncWork()
+
+    assert.equal(harness.calls.windowsCreate.length, 1)
+    assert.ok(!harness.hasScheduledAlarm('recent-tab-thumbnail:10:2'))
+    assert.ok(harness.calls.tabsCaptureVisibleTab.length >= 1)
+  })
+
+  it('refreshes the current tab before opening the switcher', async () => {
     const capture = createDeferred()
     const harness = await createBackgroundHarness({
       activeTab: { id: 1, windowId: 10 },
@@ -506,6 +528,17 @@ describe('background recent tab switcher orchestration', () => {
     harness.invokeRecentTabSwitcherCommand()
     await flushAsyncWork()
 
+    assert.equal(harness.calls.windowsCreate.length, 0)
+    assert.deepEqual(harness.calls.tabsCaptureVisibleTab, [
+      {
+        options: { format: 'jpeg', quality: 45 },
+        windowId: 10,
+      },
+    ])
+
+    capture.resolve('data:image/jpeg;base64,cmF3')
+    await flushAsyncWork()
+
     assert.equal(harness.calls.windowsCreate.length, 1)
 
     const state = harness.invokeRuntimeMessage({
@@ -514,22 +547,13 @@ describe('background recent tab switcher orchestration', () => {
     })
     await flushAsyncWork()
 
-    assert.deepEqual(harness.calls.tabsCaptureVisibleTab, [
-      {
-        options: { format: 'jpeg', quality: 45 },
-        windowId: 10,
-      },
-    ])
     assert.deepEqual(
       state.response.tabs.map(({ id, thumbnailUrl }) => ({ id, thumbnailUrl })),
       [
-        { id: 1, thumbnailUrl: 'data:image/jpeg;base64,oldCurrent' },
+        { id: 1, thumbnailUrl: 'data:image/jpeg;base64,AQID' },
         { id: 2, thumbnailUrl: 'data:image/jpeg;base64,prevTab' },
       ],
     )
-
-    capture.resolve('data:image/jpeg;base64,cmF3')
-    await flushAsyncWork()
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
       {
         thumbnails: [
@@ -568,16 +592,17 @@ describe('background recent tab switcher orchestration', () => {
   })
 
   it('does not save a capture when the active tab changed before capture finished', async () => {
+    const capture = createDeferred()
     const harness = await createBackgroundHarness({
-      activeTab: { id: 3, windowId: 10 },
-      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+      activeTab: { id: 2, windowId: 10 },
+      captureVisibleTabResult: capture.promise,
       initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
     })
 
-    mock.timers.enable({ apis: ['setTimeout'] })
     harness.invokeTabActivated({ tabId: 2, windowId: 10 })
     await flushAsyncWork()
-    mock.timers.tick(250)
+    harness.setActiveTab({ id: 3, windowId: 10 })
+    capture.resolve('data:image/jpeg;base64,cmF3')
     await flushAsyncWork()
 
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, undefined)
@@ -606,24 +631,42 @@ describe('background recent tab switcher orchestration', () => {
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, undefined)
   })
 
-  it('coalesces rapid activation captures per window', async () => {
+  it('commits the outgoing tab thumbnail when switching away after it was captured', async () => {
     const harness = await createBackgroundHarness({
-      activeTab: { id: 3, windowId: 10 },
+      activeTab: { id: 2, windowId: 10 },
       captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
     })
 
-    mock.timers.enable({ apis: ['setTimeout'] })
     harness.invokeTabActivated({ tabId: 1, windowId: 10 })
-    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
-    harness.invokeTabActivated({ tabId: 3, windowId: 10 })
     await flushAsyncWork()
-    mock.timers.tick(250)
+    harness.invokeThumbnailCaptureAlarm('recent-tab-thumbnail:10:1')
     await flushAsyncWork()
 
-    assert.equal(harness.calls.tabsCaptureVisibleTab.length, 1)
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
       {
-        thumbnails: [{ tabId: 3, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        thumbnails: [{ tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        windowId: 10,
+      },
+    ])
+  })
+
+  it('captures a thumbnail when the scheduled activation alarm fires', async () => {
+    const harness = await createBackgroundHarness({
+      activeTab: { id: 2, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
+    })
+
+    harness.invokeTabActivated({ tabId: 2, windowId: 10 })
+    await flushAsyncWork()
+    harness.invokeThumbnailCaptureAlarm('recent-tab-thumbnail:10:2')
+    await flushAsyncWork()
+
+    assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
+      {
+        thumbnails: [{ tabId: 2, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
         windowId: 10,
       },
     ])
@@ -757,6 +800,7 @@ describe('background recent tab switcher orchestration', () => {
   it('removes thumbnails for tabs dropped during source-window reconciliation', async () => {
     const harness = await createBackgroundHarness({
       activeTab: { id: 1, windowId: 10 },
+      captureVisibleTabResult: 'data:image/jpeg;base64,cmF3',
       initialRecentHistories: [{ tabIds: [2, 1], windowId: 10 }],
       initialRecentThumbnails: [
         {
@@ -776,9 +820,10 @@ describe('background recent tab switcher orchestration', () => {
     harness.invokeRecentTabSwitcherCommand()
     await flushAsyncWork()
 
+    assert.equal(harness.calls.windowsCreate.length, 0)
     assert.deepEqual(harness.sessionStorage.recentTabThumbnails, [
       {
-        thumbnails: [{ tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,AQID' }],
+        thumbnails: [{ tabId: 1, thumbnailUrl: 'data:image/jpeg;base64,one' }],
         windowId: 10,
       },
     ])
@@ -857,6 +902,8 @@ async function createBackgroundHarness({
     windowsUpdate: [],
   }
   const events = []
+  const alarmListeners = []
+  const scheduledAlarms = new Map()
   const sessionStorage = {}
   if (initialRecentHistories) {
     sessionStorage.recentTabHistories = initialRecentHistories
@@ -864,6 +911,15 @@ async function createBackgroundHarness({
   if (initialRecentThumbnails) {
     sessionStorage.recentTabThumbnails = initialRecentThumbnails
   }
+  const currentActiveTab = activeTab
+    ? {
+        favIconUrl: activeTab.favIconUrl ?? '',
+        id: activeTab.id,
+        title: activeTab.title ?? 'Active',
+        url: activeTab.url ?? 'https://example.com/',
+        windowId: activeTab.windowId,
+      }
+    : undefined
 
   globalThis.fetch = () =>
     Promise.resolve({
@@ -890,9 +946,36 @@ async function createBackgroundHarness({
 
   globalThis.chrome = {
     alarms: {
-      create() {},
+      clear(name) {
+        scheduledAlarms.delete(name)
+        return Promise.resolve()
+      },
+      create(name, info) {
+        scheduledAlarms.set(name, info)
+        const delay = Math.max(0, (info.when ?? Date.now()) - Date.now())
+        setTimeout(() => {
+          if (!scheduledAlarms.has(name)) {
+            return
+          }
+          scheduledAlarms.delete(name)
+          for (const listener of alarmListeners) {
+            listener({ name })
+          }
+        }, delay)
+        return Promise.resolve()
+      },
+      getAll() {
+        return Promise.resolve(
+          [...scheduledAlarms.entries()].map(([name, info]) => ({
+            name,
+            ...info,
+          })),
+        )
+      },
       onAlarm: {
-        addListener() {},
+        addListener(listener) {
+          alarmListeners.push(listener)
+        },
       },
     },
     commands: {
@@ -996,12 +1079,16 @@ async function createBackgroundHarness({
         if (captureVisibleTabError) {
           return Promise.reject(captureVisibleTabError)
         }
-        return Promise.resolve(captureVisibleTabResult)
+        const result =
+          typeof captureVisibleTabResult === 'function'
+            ? captureVisibleTabResult({ options, windowId })
+            : captureVisibleTabResult
+        return Promise.resolve(result)
       },
       query(options) {
         events.push('tabs.query')
         calls.tabsQuery.push(options)
-        return Promise.resolve(activeTab ? [activeTab] : [])
+        return Promise.resolve(currentActiveTab ? [currentActiveTab] : [])
       },
       sendMessage(tabId, message) {
         events.push('tabs.sendMessage')
@@ -1018,6 +1105,9 @@ async function createBackgroundHarness({
       },
     },
     windows: {
+      getAll() {
+        return Promise.resolve([])
+      },
       onRemoved: {
         addListener(listener) {
           windowsRemovedListeners.push(listener)
@@ -1068,6 +1158,16 @@ async function createBackgroundHarness({
     calls,
     events,
     sessionStorage,
+    hasScheduledAlarm(alarmName) {
+      return scheduledAlarms.has(alarmName)
+    },
+    setActiveTab(activeInfo) {
+      if (!currentActiveTab) {
+        return
+      }
+      currentActiveTab.id = activeInfo.tabId
+      currentActiveTab.windowId = activeInfo.windowId
+    },
     invokeCopyCurrentUrlCommand() {
       commandListeners.at(-1)('copy-current-url')
     },
@@ -1078,6 +1178,10 @@ async function createBackgroundHarness({
       commandListeners.at(-1)('recent-tab-switcher-previous')
     },
     invokeTabActivated(activeInfo) {
+      if (currentActiveTab) {
+        currentActiveTab.id = activeInfo.tabId
+        currentActiveTab.windowId = activeInfo.windowId
+      }
       for (const listener of tabsActivatedListeners) {
         listener(activeInfo)
       }
@@ -1095,6 +1199,11 @@ async function createBackgroundHarness({
     invokeWindowRemoved(windowId) {
       for (const listener of windowsRemovedListeners) {
         listener(windowId)
+      }
+    },
+    invokeThumbnailCaptureAlarm(alarmName) {
+      for (const listener of alarmListeners) {
+        listener({ name: alarmName })
       }
     },
     invokeRuntimeMessage(message, sender = {}) {
