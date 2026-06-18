@@ -2,7 +2,12 @@ import { checkCanCopyTabUrl } from './copyable-url.js'
 import { createRecentTabHistory } from './recent-tab-history.js'
 import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
 import { prepareThumbnailImage } from './thumbnail-image.js'
-import { pickCalendarTabForConnect } from './calendar-connect.js'
+import {
+  GOOGLE_CALENDAR_HOST_PATTERN,
+  checkHasCalendarHostPermission,
+  pickCalendarTabForConnect,
+  requestCalendarHostPermission,
+} from './calendar-connect.js'
 import {
   CALENDAR_OPEN_URL,
   fetchBootstrap,
@@ -929,7 +934,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     typeof tab?.url === 'string' &&
     tab.url.startsWith('https://calendar.google.com/')
   ) {
-    void syncMeetings()
+    void (async () => {
+      if (await checkHasCalendarHostPermission()) {
+        await syncMeetings()
+      }
+    })()
   }
 })
 
@@ -1037,11 +1046,13 @@ async function createMeetingSyncContext() {
   const settings = await getMeetingSettings()
   const previous = await getMeetingCache()
   const allowReconnect = await getCalendarConnectPending()
+  const hasCalendarHostPermission = await checkHasCalendarHostPermission()
 
   const skipDecision = checkShouldSkipMeetingSync({
     enabled: settings.enabled,
     allowReconnect,
     connectionStatus: previous.connectionStatus,
+    hasCalendarHostPermission,
   })
   if (skipDecision.skip) {
     await clearMeetingBadge()
@@ -1107,6 +1118,10 @@ function createMeetingSyncWriters(syncContext) {
 }
 
 async function detectMeetingCalendarConnection(syncContext) {
+  if (!(await checkHasCalendarHostPermission())) {
+    return undefined
+  }
+
   const { applyMeetingCacheReplacement, finishSync } =
     createMeetingSyncWriters(syncContext)
   const lastSyncedAt = Date.now()
@@ -1391,12 +1406,21 @@ async function getConnectionStatus() {
 
 const CALENDAR_CONNECT_POLL_MS = 500
 const CALENDAR_CONNECT_TIMEOUT_MS = 20_000
-const CALENDAR_TAB_QUERY = 'https://calendar.google.com/*'
+const CALENDAR_TAB_QUERY = GOOGLE_CALENDAR_HOST_PATTERN
 
-// Connect tries a background sync first so an existing Google session promotes
-// without opening Calendar. When sign-in is still needed, reuse an open Calendar
-// tab (focus + reload) or open one in the foreground for login.
+// Connect requests Calendar host access first, then tries a background sync so
+// an existing Google session promotes without opening Calendar. When sign-in is
+// still needed, reuse an open Calendar tab (focus + reload) or open one in the
+// foreground for login.
 async function connectCalendar() {
+  const { granted } = await requestCalendarHostPermission()
+  if (!granted) {
+    return {
+      ok: false,
+      ...buildConnectionStatusResponse(await getMeetingCache()),
+    }
+  }
+
   await setCalendarConnectPending(true)
 
   try {

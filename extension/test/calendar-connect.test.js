@@ -2,9 +2,42 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  GOOGLE_CALENDAR_HOST_ORIGINS,
+  GOOGLE_CALENDAR_HOST_PATTERN,
+  checkHasCalendarHostPermission,
   checkIsGoogleCalendarUrl,
   pickCalendarTabForConnect,
+  requestCalendarHostPermission,
 } from '../src/calendar-connect.js'
+
+describe('calendar host permission helpers', () => {
+  it('uses the calendar.google.com host pattern', () => {
+    assert.equal(GOOGLE_CALENDAR_HOST_PATTERN, 'https://calendar.google.com/*')
+    assert.deepEqual(GOOGLE_CALENDAR_HOST_ORIGINS, [
+      'https://calendar.google.com/*',
+    ])
+  })
+
+  it('checks whether calendar host permission is granted', async () => {
+    const contains = async (details) => {
+      assert.deepEqual(details, { origins: GOOGLE_CALENDAR_HOST_ORIGINS })
+      return true
+    }
+
+    assert.equal(await checkHasCalendarHostPermission({ contains }), true)
+  })
+
+  it('requests calendar host permission and reports grant result', async () => {
+    const request = async (details) => {
+      assert.deepEqual(details, { origins: GOOGLE_CALENDAR_HOST_ORIGINS })
+      return false
+    }
+
+    assert.deepEqual(await requestCalendarHostPermission({ request }), {
+      granted: false,
+    })
+  })
+})
 
 describe('checkIsGoogleCalendarUrl', () => {
   it('matches calendar.google.com URLs', () => {

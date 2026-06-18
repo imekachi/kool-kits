@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Kool Kits",
   "description": "Productivity shortcuts for Chrome.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "icons": {
     "16": "icons/icon16.png",
     "24": "icons/icon24.png",
@@ -56,5 +56,5 @@
     "favicon",
     "alarms"
   ],
-  "host_permissions": ["https://calendar.google.com/"]
+  "optional_host_permissions": ["https://calendar.google.com/*"]
 }

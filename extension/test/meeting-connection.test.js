@@ -161,6 +161,18 @@ describe('meeting sync guards', () => {
     assert.equal(checkAllowsSyncCacheWrite(1, 2), false)
   })
 
+  it('skips sync when calendar host permission is not granted', () => {
+    assert.deepEqual(
+      checkShouldSkipMeetingSync({
+        enabled: true,
+        allowReconnect: false,
+        connectionStatus: ConnectionStatus.SESSION_UNAVAILABLE,
+        hasCalendarHostPermission: false,
+      }),
+      { skip: true, reason: 'calendar-host-permission' },
+    )
+  })
+
   it('skips sync when disconnected unless reconnect is pending', () => {
     assert.deepEqual(
       checkShouldSkipMeetingSync({

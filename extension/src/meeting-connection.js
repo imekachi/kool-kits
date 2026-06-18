@@ -199,7 +199,12 @@ export function checkShouldSkipMeetingSync({
   enabled,
   allowReconnect,
   connectionStatus,
+  hasCalendarHostPermission = true,
 }) {
+  if (hasCalendarHostPermission === false) {
+    return { skip: true, reason: 'calendar-host-permission' }
+  }
+
   if (checkIsExtensionDisconnected(connectionStatus) && !allowReconnect) {
     return { skip: true, reason: 'disconnected' }
   }

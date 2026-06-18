@@ -1,4 +1,21 @@
 export const GOOGLE_CALENDAR_URL_PREFIX = 'https://calendar.google.com/'
+export const GOOGLE_CALENDAR_HOST_PATTERN = 'https://calendar.google.com/*'
+export const GOOGLE_CALENDAR_HOST_ORIGINS = [GOOGLE_CALENDAR_HOST_PATTERN]
+
+export async function checkHasCalendarHostPermission(
+  permissions = chrome.permissions,
+) {
+  return permissions.contains({ origins: GOOGLE_CALENDAR_HOST_ORIGINS })
+}
+
+export async function requestCalendarHostPermission(
+  permissions = chrome.permissions,
+) {
+  const granted = await permissions.request({
+    origins: GOOGLE_CALENDAR_HOST_ORIGINS,
+  })
+  return { granted }
+}
 
 export function checkIsGoogleCalendarUrl(url) {
   return typeof url === 'string' && url.startsWith(GOOGLE_CALENDAR_URL_PREFIX)
