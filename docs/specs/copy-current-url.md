@@ -35,7 +35,7 @@ The service worker is responsible for:
 
 Clipboard writing is delegated to an offscreen extension document. Manifest V3 service workers do not have DOM access, and clipboard writes are more reliable from an extension document context than from arbitrary web pages. The offscreen document receives the URL from the service worker, writes it to the clipboard, reports success or failure, and can then be closed or reused.
 
-Toast rendering is delegated to a content script injected into the active tab. The extension requests broad site access so this toast can render across ordinary websites and any other injectable pages. The content script owns only the page overlay behavior; it does not decide which URL to copy, and failure to inject it does not block copying.
+Toast rendering is delegated to a content script injected into the active tab after the user invokes the keyboard command. The extension relies on Chrome's `activeTab` permission for this user-initiated injection instead of requesting broad site access. This keeps the permission prompt narrower while preserving page feedback on ordinary injectable websites. The content script owns only the page overlay behavior; it does not decide which URL to copy, and failure to inject it does not block copying.
 
 ## Permissions And Chrome Shortcut Settings
 
@@ -44,7 +44,7 @@ The extension should request the permissions needed to:
 - Register a keyboard command.
 - Read the active tab's URL.
 - Write to the clipboard through an extension-controlled context.
-- Inject toast feedback into ordinary websites.
+- Inject toast feedback into the active tab after the user invokes the command.
 
 The manifest should suggest `Command+Shift+C` as the macOS shortcut for the copy-current-URL command. The command must remain visible in Chrome's extension shortcut settings so the user can remap it.
 
