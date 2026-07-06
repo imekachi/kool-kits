@@ -21,7 +21,7 @@ describe('checkCanCopyTabUrl', () => {
     )
   })
 
-  it('allows Chrome Web Store pages even though toast injection may fail', () => {
+  it('allows Chrome Web Store pages when Chrome exposes them', () => {
     assert.equal(
       checkCanCopyTabUrl('https://chrome.google.com/webstore/detail/example'),
       true,

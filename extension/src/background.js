@@ -48,7 +48,12 @@ const RECENT_TAB_SWITCHER_COMMAND = 'recent-tab-switcher'
 const RECENT_TAB_SWITCHER_PREVIOUS_COMMAND = 'recent-tab-switcher-previous'
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html'
 const SWITCHER_DOCUMENT_PATH = 'src/switcher.html'
-const TOAST_SCRIPT_PATH = 'src/toast.js'
+const ACTION_BADGE_SUCCESS_TEXT = '✓'
+const ACTION_BADGE_ERROR_TEXT = 'ERR'
+const ACTION_BADGE_DURATION_MS = 1_500
+const ACTION_BADGE_SUCCESS_BACKGROUND_COLOR = '#46d39a'
+const ACTION_BADGE_ERROR_BACKGROUND_COLOR = '#e5484d'
+const ACTION_BADGE_TEXT_COLOR = '#ffffff'
 const RECENT_TAB_HISTORY_STORAGE_KEY = 'recentTabHistories'
 const RECENT_TAB_THUMBNAILS_STORAGE_KEY = 'recentTabThumbnails'
 const THUMBNAIL_ACTIVATION_CAPTURE_DELAY_MS = 250
@@ -65,6 +70,7 @@ const SWITCHER_SHELL_HORIZONTAL_PADDING = 34
 const SWITCHER_WINDOW_HORIZONTAL_PADDING = 0
 
 let offscreenDocumentCreationPromise
+let temporaryBadgeRestoreTimeoutId
 let recentTabHistoryPromise
 let switcherOpeningPromise
 let switcherSession
@@ -771,19 +777,7 @@ async function copyCurrentUrl() {
   }
 
   const copyResult = await copyTextToClipboard(tab.url)
-  if (!tab.id) {
-    return
-  }
-
-  const canRenderToast = await ensureToastScript(tab.id)
-  if (!canRenderToast) {
-    return
-  }
-
-  await sendToastMessage(tab.id, {
-    tone: copyResult.ok ? 'success' : 'error',
-    text: copyResult.ok ? 'Copied Current URL' : 'Could not copy URL',
-  })
+  await showTemporaryActionBadgeFeedback({ ok: copyResult.ok })
 }
 
 async function getActiveTab() {
@@ -793,18 +787,6 @@ async function getActiveTab() {
   })
 
   return tab
-}
-
-async function ensureToastScript(tabId) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: [TOAST_SCRIPT_PATH],
-    })
-    return true
-  } catch {
-    return false
-  }
 }
 
 async function copyTextToClipboard(text) {
@@ -846,16 +828,28 @@ async function ensureOffscreenDocument() {
   await offscreenDocumentCreationPromise
 }
 
-async function sendToastMessage(tabId, toast) {
-  try {
-    await chrome.tabs.sendMessage(tabId, {
-      target: 'kool-kits-toast',
-      type: 'show-toast',
-      toast,
-    })
-  } catch {
-    // The spec intentionally avoids fallback feedback channels.
+async function showTemporaryActionBadgeFeedback({ ok }) {
+  if (temporaryBadgeRestoreTimeoutId) {
+    clearTimeout(temporaryBadgeRestoreTimeoutId)
+    temporaryBadgeRestoreTimeoutId = undefined
   }
+
+  await chrome.action.setBadgeBackgroundColor({
+    color: ok
+      ? ACTION_BADGE_SUCCESS_BACKGROUND_COLOR
+      : ACTION_BADGE_ERROR_BACKGROUND_COLOR,
+  })
+  if (chrome.action.setBadgeTextColor) {
+    await chrome.action.setBadgeTextColor({ color: ACTION_BADGE_TEXT_COLOR })
+  }
+  await chrome.action.setBadgeText({
+    text: ok ? ACTION_BADGE_SUCCESS_TEXT : ACTION_BADGE_ERROR_TEXT,
+  })
+
+  temporaryBadgeRestoreTimeoutId = setTimeout(() => {
+    temporaryBadgeRestoreTimeoutId = undefined
+    void refreshMeetingBadge()
+  }, ACTION_BADGE_DURATION_MS)
 }
 
 const MEETING_REMINDER_MESSAGE_TARGET = 'kool-kits-meeting-reminder'
@@ -1445,7 +1439,7 @@ async function connectCalendar() {
       checkShowsConnectedAccount(cache.connectionStatus, cache.connectedEmail)
     ) {
       await setCalendarConnectPending(false)
-      await showCalendarConnectedToast()
+      await showTemporaryActionBadgeFeedback({ ok: true })
     }
 
     return response
@@ -1493,23 +1487,6 @@ async function waitForCalendarConnectResult() {
   }
 
   return false
-}
-
-async function showCalendarConnectedToast() {
-  const calendarTab = pickCalendarTabForConnect(await queryCalendarTabs())
-  if (!calendarTab?.id) {
-    return
-  }
-
-  const canRenderToast = await ensureToastScript(calendarTab.id)
-  if (!canRenderToast) {
-    return
-  }
-
-  await sendToastMessage(calendarTab.id, {
-    tone: 'success',
-    text: 'Calendar connected. You can close this tab.',
-  })
 }
 
 // Clears cached meetings and connection state and stops syncing until the user
