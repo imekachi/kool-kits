@@ -119,7 +119,6 @@ Sizing the popup from the rendered content reduces empty space when only a few r
 
 ## Out Of Scope
 
-- Implementing the switcher as part of the copy-current-URL milestone.
 - Replacing Chrome's full tab management UI.
 - Designing settings, sync, or user customization for the switcher.
 - Supporting non-Chrome browsers.

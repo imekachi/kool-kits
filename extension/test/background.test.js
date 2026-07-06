@@ -24,246 +24,8 @@ afterEach(() => {
   mock.timers.reset()
 })
 
-describe('background command orchestration', () => {
-  it('copies Chrome-owned pages with badge feedback and no page injection', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 1, url: 'chrome://extensions/' },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.equal(harness.calls.tabsQuery.length, 1)
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.equal(harness.calls.getContexts.length, 1)
-    assert.equal(harness.calls.createDocument.length, 1)
-    assert.deepEqual(harness.calls.runtimeSendMessage, [
-      {
-        target: 'kool-kits-offscreen',
-        type: 'copy-text',
-        text: 'chrome://extensions/',
-      },
-    ])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('copies the active tab URL and shows a success badge', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const tabUrl = 'https://example.com/current?tab=1'
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: tabUrl },
-      copyResponse: { ok: true },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.deepEqual(harness.calls.getContexts, [
-      {
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: ['chrome-extension://kool-kits/src/offscreen.html'],
-      },
-    ])
-    assert.deepEqual(harness.calls.createDocument, [
-      {
-        url: 'src/offscreen.html',
-        reasons: ['CLIPBOARD'],
-        justification: 'Copy the active tab URL to the clipboard.',
-      },
-    ])
-    assert.deepEqual(harness.calls.runtimeSendMessage, [
-      {
-        target: 'kool-kits-offscreen',
-        type: 'copy-text',
-        text: tabUrl,
-      },
-    ])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }])
-    assert.deepEqual(harness.events, [
-      'tabs.query',
-      'runtime.getContexts',
-      'offscreen.createDocument',
-      'runtime.sendMessage',
-    ])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('uses an existing offscreen document while copying the active tab URL', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const tabUrl = 'https://example.com/current?tab=1'
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: tabUrl },
-      copyResponse: { ok: true },
-      existingContexts: [
-        {
-          contextType: 'OFFSCREEN_DOCUMENT',
-          documentUrl: 'chrome-extension://kool-kits/src/offscreen.html',
-        },
-      ],
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.getContexts, [
-      {
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: ['chrome-extension://kool-kits/src/offscreen.html'],
-      },
-    ])
-    assert.deepEqual(harness.calls.createDocument, [])
-    assert.deepEqual(harness.calls.runtimeSendMessage, [
-      {
-        target: 'kool-kits-offscreen',
-        type: 'copy-text',
-        text: tabUrl,
-      },
-    ])
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('shows an error badge when clipboard copy fails', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: 'https://example.com/current' },
-      copyResponse: { ok: false },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.equal(harness.calls.runtimeSendMessage.length, 1)
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: 'ERR' }])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('shares one offscreen document creation across concurrent first-run commands', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const createDocument = createDeferred()
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: 'https://example.com/current' },
-      createDocumentResult: createDocument.promise,
-      copyResponse: { ok: true },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.equal(harness.calls.getContexts.length, 2)
-    assert.equal(harness.calls.createDocument.length, 1)
-    assert.deepEqual(harness.calls.runtimeSendMessage, [])
-
-    createDocument.resolve()
-    await flushAsyncWork()
-
-    assert.equal(harness.calls.createDocument.length, 1)
-    assert.equal(harness.calls.runtimeSendMessage.length, 2)
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }, { text: '✓' }])
-    await drainTemporaryBadgeFeedback()
-  })
-})
-
-describe('copy URL toolbar badge feedback', () => {
-  it('shows a check badge when clipboard copy succeeds', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: 'https://example.com/current' },
-      copyResponse: { ok: true },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.setBadgeBackgroundColor, [
-      { color: '#46d39a' },
-    ])
-    assert.deepEqual(harness.calls.setBadgeTextColor, [{ color: '#ffffff' }])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('shows an ERR badge when clipboard copy fails', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 42, url: 'https://example.com/current' },
-      copyResponse: { ok: false },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.setBadgeBackgroundColor, [
-      { color: '#e5484d' },
-    ])
-    assert.deepEqual(harness.calls.setBadgeTextColor, [{ color: '#ffffff' }])
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: 'ERR' }])
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
-    await drainTemporaryBadgeFeedback()
-  })
-
-  it('restores the meeting reminder badge after the copy badge clears', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
-
-    const now = Date.now()
-    const harness = await createBackgroundHarness({
-      activeTab: { id: 1, url: 'chrome://extensions/' },
-      copyResponse: { ok: true },
-      initialLocalStorage: {
-        meetingSettings: {
-          enabled: true,
-          leadMinutes: 5,
-          meetingFilter: 'acceptedTentative',
-        },
-        meetingReminderCache: {
-          connectionStatus: ConnectionStatus.CONNECTED,
-          meetings: [
-            {
-              id: '1',
-              start: now + 60_000,
-              end: now + 120_000,
-              title: 'Standup',
-            },
-          ],
-          lastSyncedAt: now,
-        },
-      },
-    })
-
-    harness.invokeCopyCurrentUrlCommand()
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.setBadgeText, [{ text: '✓' }])
-
-    mock.timers.tick(1_500)
-    await flushAsyncWork()
-
-    assert.deepEqual(harness.calls.setBadgeText, [
-      { text: '✓' },
-      { text: '1m' },
-    ])
-    assert.deepEqual(harness.calls.setBadgeBackgroundColor.at(-1), {
-      color: '#e5484d',
-    })
-    await drainTemporaryBadgeFeedback()
-  })
-})
-
 describe('calendar connect toolbar badge feedback', () => {
-  it('shows a success badge after connect via Calendar sign-in without page injection', async () => {
+  it('shows a success badge after connect via Calendar sign-in', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     const calendarTab = {
       active: true,
@@ -314,8 +76,6 @@ describe('calendar connect toolbar badge feedback', () => {
       }
     }
 
-    assert.deepEqual(harness.calls.executeScript, [])
-    assert.deepEqual(harness.calls.tabsSendMessage, [])
     assert.ok(
       harness.calls.setBadgeText.some((call) => call.text === '✓'),
       'expected success badge',
@@ -1073,10 +833,6 @@ async function createBackgroundHarness({
   calendarTab,
   captureVisibleTabError,
   captureVisibleTabResult = 'data:image/jpeg;base64,cmF3',
-  copyResponse = { ok: true },
-  createDocumentResult = Promise.resolve(),
-  executeScriptError,
-  existingContexts = [],
   fetchBootstrapSequence,
   getWindowResult,
   initialLocalStorage,
@@ -1096,9 +852,6 @@ async function createBackgroundHarness({
   const windowsRemovedListeners = []
   const runtimeMessageListeners = []
   const calls = {
-    createDocument: [],
-    executeScript: [],
-    getContexts: [],
     runtimeSendMessage: [],
     setBadgeBackgroundColor: [],
     setBadgeText: [],
@@ -1108,7 +861,6 @@ async function createBackgroundHarness({
     tabsCaptureVisibleTab: [],
     tabsCreate: [],
     tabsQuery: [],
-    tabsSendMessage: [],
     tabsUpdate: [],
     windowsCreate: [],
     windowsGet: [],
@@ -1241,13 +993,6 @@ async function createBackgroundHarness({
         },
       },
     },
-    offscreen: {
-      createDocument(options) {
-        events.push('offscreen.createDocument')
-        calls.createDocument.push(options)
-        return createDocumentResult
-      },
-    },
     permissions: {
       contains() {
         return Promise.resolve(calendarHostPermissionGranted)
@@ -1257,11 +1002,6 @@ async function createBackgroundHarness({
       },
     },
     runtime: {
-      getContexts(options) {
-        events.push('runtime.getContexts')
-        calls.getContexts.push(options)
-        return Promise.resolve(existingContexts)
-      },
       getURL(path) {
         return `chrome-extension://kool-kits/${path}`
       },
@@ -1282,18 +1022,6 @@ async function createBackgroundHarness({
         if (message?.target === 'kool-kits-recent-tab-switcher-ui') {
           return Promise.resolve(advanceSelectionResponse)
         }
-        return Promise.resolve(copyResponse)
-      },
-    },
-    scripting: {
-      executeScript(options) {
-        events.push('scripting.executeScript')
-        calls.executeScript.push(options)
-
-        if (executeScriptError) {
-          return Promise.reject(executeScriptError)
-        }
-
         return Promise.resolve()
       },
     },
@@ -1390,11 +1118,6 @@ async function createBackgroundHarness({
         }
         return Promise.resolve(currentActiveTab ? [currentActiveTab] : [])
       },
-      sendMessage(tabId, message) {
-        events.push('tabs.sendMessage')
-        calls.tabsSendMessage.push({ tabId, message })
-        return Promise.resolve()
-      },
       update(tabId, updateProperties) {
         events.push('tabs.update')
         calls.tabsUpdate.push({ tabId, updateProperties })
@@ -1468,9 +1191,6 @@ async function createBackgroundHarness({
       }
       currentActiveTab.id = activeInfo.tabId
       currentActiveTab.windowId = activeInfo.windowId
-    },
-    invokeCopyCurrentUrlCommand() {
-      commandListeners.at(-1)('copy-current-url')
     },
     invokeRecentTabSwitcherCommand() {
       commandListeners.at(-1)('recent-tab-switcher')

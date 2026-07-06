@@ -24,13 +24,6 @@
     "type": "module"
   },
   "commands": {
-    "copy-current-url": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+C",
-        "mac": "Command+Shift+C"
-      },
-      "description": "Copy current URL"
-    },
     "recent-tab-switcher": {
       "suggested_key": {
         "default": "Ctrl+Shift+K",
@@ -46,13 +39,6 @@
       "description": "Move recent tab switcher selection backward"
     }
   },
-  "permissions": [
-    "tabs",
-    "offscreen",
-    "clipboardWrite",
-    "storage",
-    "favicon",
-    "alarms"
-  ],
+  "permissions": ["tabs", "storage", "favicon", "alarms"],
   "optional_host_permissions": ["https://calendar.google.com/*"]
 }

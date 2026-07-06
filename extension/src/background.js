@@ -1,4 +1,3 @@
-import { checkCanCopyTabUrl } from './copyable-url.js'
 import { createRecentTabHistory } from './recent-tab-history.js'
 import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
 import { prepareThumbnailImage } from './thumbnail-image.js'
@@ -43,10 +42,8 @@ import {
 } from './meeting-connection.js'
 import { getMeetingSettings } from './meeting-settings.js'
 
-const COPY_CURRENT_URL_COMMAND = 'copy-current-url'
 const RECENT_TAB_SWITCHER_COMMAND = 'recent-tab-switcher'
 const RECENT_TAB_SWITCHER_PREVIOUS_COMMAND = 'recent-tab-switcher-previous'
-const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html'
 const SWITCHER_DOCUMENT_PATH = 'src/switcher.html'
 const ACTION_BADGE_SUCCESS_TEXT = '✓'
 const ACTION_BADGE_ERROR_TEXT = 'ERR'
@@ -69,7 +66,6 @@ const SWITCHER_WINDOW_MAX_WIDTH = 1160
 const SWITCHER_SHELL_HORIZONTAL_PADDING = 34
 const SWITCHER_WINDOW_HORIZONTAL_PADDING = 0
 
-let offscreenDocumentCreationPromise
 let temporaryBadgeRestoreTimeoutId
 let recentTabHistoryPromise
 let switcherOpeningPromise
@@ -83,11 +79,6 @@ const previousActiveTabIdByWindowId = new Map()
 const tabNavigationGenerations = new Map()
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === COPY_CURRENT_URL_COMMAND) {
-    void copyCurrentUrl()
-    return
-  }
-
   if (command === RECENT_TAB_SWITCHER_COMMAND) {
     void showOrAdvanceRecentTabSwitcher('next')
     return
@@ -767,65 +758,6 @@ function getDesiredSwitcherWidth({ layoutMetrics, visibleItemCount }) {
     SWITCHER_SHELL_HORIZONTAL_PADDING +
     SWITCHER_WINDOW_HORIZONTAL_PADDING
   )
-}
-
-async function copyCurrentUrl() {
-  const tab = await getActiveTab()
-
-  if (!tab?.url || !checkCanCopyTabUrl(tab.url)) {
-    return
-  }
-
-  const copyResult = await copyTextToClipboard(tab.url)
-  await showTemporaryActionBadgeFeedback({ ok: copyResult.ok })
-}
-
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-  })
-
-  return tab
-}
-
-async function copyTextToClipboard(text) {
-  try {
-    await ensureOffscreenDocument()
-    const response = await chrome.runtime.sendMessage({
-      target: 'kool-kits-offscreen',
-      type: 'copy-text',
-      text,
-    })
-
-    return response?.ok ? { ok: true } : { ok: false }
-  } catch {
-    return { ok: false }
-  }
-}
-
-async function ensureOffscreenDocument() {
-  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [offscreenUrl],
-  })
-
-  if (existingContexts.length > 0) {
-    return
-  }
-
-  offscreenDocumentCreationPromise ??= chrome.offscreen
-    .createDocument({
-      url: OFFSCREEN_DOCUMENT_PATH,
-      reasons: ['CLIPBOARD'],
-      justification: 'Copy the active tab URL to the clipboard.',
-    })
-    .finally(() => {
-      offscreenDocumentCreationPromise = undefined
-    })
-
-  await offscreenDocumentCreationPromise
 }
 
 async function showTemporaryActionBadgeFeedback({ ok }) {
