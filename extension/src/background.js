@@ -1,6 +1,4 @@
 import { createRecentTabHistory } from './recent-tab-history.js'
-import { createRecentTabThumbnails } from './recent-tab-thumbnails.js'
-import { prepareThumbnailImage } from './thumbnail-image.js'
 import {
   GOOGLE_CALENDAR_HOST_PATTERN,
   checkHasCalendarHostPermission,
@@ -52,12 +50,6 @@ const ACTION_BADGE_SUCCESS_BACKGROUND_COLOR = '#46d39a'
 const ACTION_BADGE_ERROR_BACKGROUND_COLOR = '#e5484d'
 const ACTION_BADGE_TEXT_COLOR = '#ffffff'
 const RECENT_TAB_HISTORY_STORAGE_KEY = 'recentTabHistories'
-const RECENT_TAB_THUMBNAILS_STORAGE_KEY = 'recentTabThumbnails'
-const THUMBNAIL_ACTIVATION_CAPTURE_DELAY_MS = 250
-const THUMBNAIL_CAPTURE_ALARM_PREFIX = 'recent-tab-thumbnail:'
-const THUMBNAIL_CAPTURE_OPTIONS = { format: 'jpeg', quality: 45 }
-const THUMBNAIL_CAPTURE_MIN_INTERVAL_MS = 1000
-const THUMBNAIL_CAPTURE_ALARM_PATTERN = /^recent-tab-thumbnail:(\d+):(\d+)$/
 const SWITCHER_CARD_WIDTH = 179
 const SWITCHER_MAX_VISIBLE_TABS = 6
 const SWITCHER_WINDOW_HEIGHT = 230
@@ -70,13 +62,6 @@ let temporaryBadgeRestoreTimeoutId
 let recentTabHistoryPromise
 let switcherOpeningPromise
 let switcherSession
-let recentTabThumbnailsPromise
-let thumbnailCaptureQueuePromise = Promise.resolve()
-let lastThumbnailCaptureAt = 0
-const activeTabGenerationsByWindowId = new Map()
-const lastVisibleCaptureByWindowId = new Map()
-const previousActiveTabIdByWindowId = new Map()
-const tabNavigationGenerations = new Map()
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === RECENT_TAB_SWITCHER_COMMAND) {
@@ -95,14 +80,6 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   void removeClosedTab({ tabId, windowId: removeInfo.windowId })
-})
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading' || typeof changeInfo.url === 'string') {
-    bumpTabNavigationGeneration({ tabId, windowId: tab.windowId })
-    clearLastVisibleCaptureIfMatches({ tabId, windowId: tab.windowId })
-    void removeTabThumbnail({ tabId, windowId: tab.windowId })
-  }
 })
 
 chrome.windows.onRemoved.addListener((windowId) => {
@@ -164,80 +141,22 @@ async function persistRecentTabHistory() {
   })
 }
 
-async function getRecentTabThumbnails() {
-  if (!recentTabThumbnailsPromise) {
-    recentTabThumbnailsPromise = chrome.storage.session
-      .get(RECENT_TAB_THUMBNAILS_STORAGE_KEY)
-      .then((storedValue) =>
-        createRecentTabThumbnails(
-          storedValue[RECENT_TAB_THUMBNAILS_STORAGE_KEY] ?? [],
-        ),
-      )
-  }
-
-  return recentTabThumbnailsPromise
-}
-
-async function persistRecentTabThumbnails() {
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  for (let attempt = 0; attempt <= 6; attempt += 1) {
-    try {
-      await chrome.storage.session.set({
-        [RECENT_TAB_THUMBNAILS_STORAGE_KEY]: recentTabThumbnails.toJSON(),
-      })
-      return
-    } catch {
-      if (!recentTabThumbnails.evictOldestThumbnail()) {
-        return
-      }
-    }
-  }
-}
-
-async function reconcileWindowThumbnailsToHistory(windowId) {
-  const recentTabHistory = await getRecentTabHistory()
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  const hadThumbnails = recentTabThumbnails.toJSON().length > 0
-  recentTabThumbnails.reconcileWindow({
-    existingTabIds: recentTabHistory.getWindowHistory(windowId),
-    windowId,
-  })
-  if (hadThumbnails) {
-    await persistRecentTabThumbnails()
-  }
-}
-
 async function recordTabActivation({ tabId, windowId }) {
-  const previousTabId = previousActiveTabIdByWindowId.get(windowId)
-  await flushOutgoingTabThumbnail({ previousTabId, windowId })
-  previousActiveTabIdByWindowId.set(windowId, tabId)
-
   const recentTabHistory = await getRecentTabHistory()
   recentTabHistory.recordActivation({ tabId, windowId })
-  bumpActiveTabGeneration(windowId)
   await persistRecentTabHistory()
-  await reconcileWindowThumbnailsToHistory(windowId)
-
-  void queueVisibleTabThumbnailCapture({
-    allowDelay: false,
-    tabId,
-    windowId,
-  })
-  scheduleVisibleTabThumbnailCapture({ tabId, windowId })
 }
 
 async function removeClosedTab({ tabId, windowId }) {
   const recentTabHistory = await getRecentTabHistory()
   recentTabHistory.removeTab({ tabId, windowId })
   await persistRecentTabHistory()
-  await removeTabThumbnail({ tabId, windowId })
 }
 
 async function removeClosedWindow(windowId) {
   const recentTabHistory = await getRecentTabHistory()
   recentTabHistory.removeWindow(windowId)
   await persistRecentTabHistory()
-  await removeWindowThumbnails(windowId)
 }
 
 async function showOrAdvanceRecentTabSwitcher(direction) {
@@ -264,214 +183,6 @@ async function showOrAdvanceRecentTabSwitcher(direction) {
   await switcherOpeningPromise
 }
 
-function getThumbnailCaptureAlarmName({ tabId, windowId }) {
-  return `${THUMBNAIL_CAPTURE_ALARM_PREFIX}${windowId}:${tabId}`
-}
-
-function scheduleVisibleTabThumbnailCapture({ tabId, windowId }) {
-  if (!Number.isInteger(tabId) || !Number.isInteger(windowId)) {
-    return
-  }
-
-  const alarmName = getThumbnailCaptureAlarmName({ tabId, windowId })
-  void chrome.alarms.clear(alarmName).then(() => {
-    void chrome.alarms.create(alarmName, {
-      when: Date.now() + THUMBNAIL_ACTIVATION_CAPTURE_DELAY_MS,
-    })
-  })
-}
-
-async function flushPendingActivationCapturesBeforePriority({
-  tabId,
-  windowId,
-}) {
-  const prefix = `${THUMBNAIL_CAPTURE_ALARM_PREFIX}${windowId}:`
-  const alarms = await chrome.alarms.getAll()
-  for (const alarm of alarms) {
-    if (!alarm.name.startsWith(prefix)) {
-      continue
-    }
-
-    const match = THUMBNAIL_CAPTURE_ALARM_PATTERN.exec(alarm.name)
-    if (!match) {
-      continue
-    }
-
-    const pendingTabId = Number(match[2])
-    await chrome.alarms.clear(alarm.name)
-    if (pendingTabId !== tabId) {
-      void queueVisibleTabThumbnailCapture({
-        priority: false,
-        tabId: pendingTabId,
-        windowId,
-      })
-    }
-  }
-}
-
-function queueVisibleTabThumbnailCapture({
-  allowDelay = true,
-  priority,
-  tabId,
-  windowId,
-}) {
-  if (!Number.isInteger(tabId) || !Number.isInteger(windowId)) {
-    return thumbnailCaptureQueuePromise
-  }
-
-  if (priority) {
-    thumbnailCaptureQueuePromise = thumbnailCaptureQueuePromise
-      .catch(() => undefined)
-      .then(() =>
-        flushPendingActivationCapturesBeforePriority({ tabId, windowId }),
-      )
-  }
-
-  thumbnailCaptureQueuePromise = thumbnailCaptureQueuePromise
-    .catch(() => undefined)
-    .then(() => waitForNextThumbnailCaptureSlot({ allowDelay }))
-    .then(() => captureVisibleTabThumbnail({ tabId, windowId }))
-    .catch(() => undefined)
-  return thumbnailCaptureQueuePromise
-}
-
-async function waitForNextThumbnailCaptureSlot({ allowDelay }) {
-  const now = Date.now()
-  const nextAllowedAt =
-    lastThumbnailCaptureAt + THUMBNAIL_CAPTURE_MIN_INTERVAL_MS
-  if (nextAllowedAt > now) {
-    if (!allowDelay) {
-      throw new Error('thumbnail capture skipped by rate limit')
-    }
-    await new Promise((resolve) => {
-      setTimeout(resolve, nextAllowedAt - now)
-    })
-  }
-  lastThumbnailCaptureAt = Date.now()
-}
-
-async function captureVisibleTabThumbnail({ tabId, windowId }) {
-  if (!Number.isInteger(tabId) || !Number.isInteger(windowId)) {
-    return
-  }
-
-  if (!(await checkIsStillActiveTab({ tabId, windowId }))) {
-    return
-  }
-
-  const activeTabGeneration = getActiveTabGeneration(windowId)
-  const navigationGeneration = getTabNavigationGeneration({ tabId, windowId })
-  try {
-    const capturedDataUrl = await chrome.tabs.captureVisibleTab(
-      windowId,
-      THUMBNAIL_CAPTURE_OPTIONS,
-    )
-    if (!(await checkIsStillActiveTab({ tabId, windowId }))) {
-      return
-    }
-
-    const thumbnailUrl = await prepareThumbnailImage(capturedDataUrl)
-    if (
-      !thumbnailUrl ||
-      !(await checkIsStillActiveTab({ tabId, windowId })) ||
-      activeTabGeneration !== getActiveTabGeneration(windowId) ||
-      !(await checkIsTabStillInHistory({ tabId, windowId })) ||
-      navigationGeneration !== getTabNavigationGeneration({ tabId, windowId })
-    ) {
-      return
-    }
-
-    const recentTabThumbnails = await getRecentTabThumbnails()
-    recentTabThumbnails.setThumbnail({ tabId, thumbnailUrl, windowId })
-    lastVisibleCaptureByWindowId.set(windowId, { tabId, thumbnailUrl })
-    await persistRecentTabThumbnails()
-  } catch {
-    // Capture availability varies by page, tab state, and browser permissions.
-  }
-}
-
-async function flushOutgoingTabThumbnail({ previousTabId, windowId }) {
-  if (!Number.isInteger(previousTabId) || !Number.isInteger(windowId)) {
-    return
-  }
-
-  const lastCapture = lastVisibleCaptureByWindowId.get(windowId)
-  if (
-    lastCapture?.tabId !== previousTabId ||
-    !lastCapture.thumbnailUrl ||
-    !(await checkIsTabStillInHistory({ tabId: previousTabId, windowId }))
-  ) {
-    return
-  }
-
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  recentTabThumbnails.setThumbnail({
-    tabId: previousTabId,
-    thumbnailUrl: lastCapture.thumbnailUrl,
-    windowId,
-  })
-  await persistRecentTabThumbnails()
-}
-
-function clearLastVisibleCaptureIfMatches({ tabId, windowId }) {
-  const lastCapture = lastVisibleCaptureByWindowId.get(windowId)
-  if (lastCapture?.tabId === tabId) {
-    lastVisibleCaptureByWindowId.delete(windowId)
-  }
-}
-
-async function removeTabThumbnail({ tabId, windowId }) {
-  clearLastVisibleCaptureIfMatches({ tabId, windowId })
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  recentTabThumbnails.removeTab({ tabId, windowId })
-  await persistRecentTabThumbnails()
-}
-
-async function removeWindowThumbnails(windowId) {
-  lastVisibleCaptureByWindowId.delete(windowId)
-  previousActiveTabIdByWindowId.delete(windowId)
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  recentTabThumbnails.removeWindow(windowId)
-  await persistRecentTabThumbnails()
-}
-
-async function checkIsStillActiveTab({ tabId, windowId }) {
-  const [activeTab] = await chrome.tabs.query({ active: true, windowId })
-  return activeTab?.id === tabId
-}
-
-async function checkIsTabStillInHistory({ tabId, windowId }) {
-  const recentTabHistory = await getRecentTabHistory()
-  return recentTabHistory.getWindowHistory(windowId).includes(tabId)
-}
-
-function getActiveTabGeneration(windowId) {
-  return activeTabGenerationsByWindowId.get(windowId) ?? 0
-}
-
-function bumpActiveTabGeneration(windowId) {
-  activeTabGenerationsByWindowId.set(
-    windowId,
-    getActiveTabGeneration(windowId) + 1,
-  )
-}
-
-function getTabNavigationGeneration({ tabId, windowId }) {
-  return tabNavigationGenerations.get(getTabKey({ tabId, windowId })) ?? 0
-}
-
-function bumpTabNavigationGeneration({ tabId, windowId }) {
-  const tabKey = getTabKey({ tabId, windowId })
-  tabNavigationGenerations.set(
-    tabKey,
-    (tabNavigationGenerations.get(tabKey) ?? 0) + 1,
-  )
-}
-
-function getTabKey({ tabId, windowId }) {
-  return `${windowId}:${tabId}`
-}
-
 async function openRecentTabSwitcher() {
   try {
     const sourceWindow = await chrome.windows.getLastFocused({
@@ -484,7 +195,6 @@ async function openRecentTabSwitcher() {
     }
 
     await reconcileSourceWindow(sourceWindow)
-    await refreshSourceWindowThumbnail(sourceWindow)
 
     const recentTabHistory = await getRecentTabHistory()
     const historyTabIds = recentTabHistory.getWindowHistory(sourceWindow.id)
@@ -517,19 +227,6 @@ async function openRecentTabSwitcher() {
   }
 }
 
-async function refreshSourceWindowThumbnail(sourceWindow) {
-  const activeTab = (sourceWindow.tabs ?? []).find(
-    (tab) => tab.active && Number.isInteger(tab.id),
-  )
-
-  await queueVisibleTabThumbnailCapture({
-    allowDelay: false,
-    priority: true,
-    tabId: activeTab?.id,
-    windowId: sourceWindow.id,
-  })
-}
-
 async function getSwitcherState() {
   if (!switcherSession?.sourceWindowId) {
     return { sourceWindowId: undefined, tabs: [] }
@@ -551,22 +248,13 @@ async function getSwitcherState() {
   const tabsById = new Map(
     (sourceWindow.tabs ?? []).map((tab) => [tab.id, tab]),
   )
-  const recentTabThumbnails = await getRecentTabThumbnails()
 
   return {
     sourceWindowId: sourceWindow.id,
     tabs: historyTabIds
       .map((tabId) => tabsById.get(tabId))
       .filter(Boolean)
-      .map((tab) =>
-        getSwitcherTab({
-          tab,
-          thumbnailUrl: recentTabThumbnails.getThumbnail({
-            tabId: tab.id,
-            windowId: sourceWindow.id,
-          }),
-        }),
-      ),
+      .map((tab) => getSwitcherTab({ tab })),
   }
 }
 
@@ -665,25 +353,17 @@ async function reconcileSourceWindow(sourceWindow) {
   const tabIds = (sourceWindow.tabs ?? [])
     .map((tab) => tab.id)
     .filter(Number.isInteger)
-  const remainingTabIds = recentTabHistory.reconcileWindow({
+  recentTabHistory.reconcileWindow({
     existingTabIds: tabIds,
     windowId: sourceWindow.id,
   })
   await persistRecentTabHistory()
-
-  const recentTabThumbnails = await getRecentTabThumbnails()
-  recentTabThumbnails.reconcileWindow({
-    existingTabIds: remainingTabIds,
-    windowId: sourceWindow.id,
-  })
-  await persistRecentTabThumbnails()
 }
 
-function getSwitcherTab({ tab, thumbnailUrl }) {
+function getSwitcherTab({ tab }) {
   return {
     favIconUrl: tab.favIconUrl || getDefaultFaviconUrl(tab.url),
     id: tab.id,
-    thumbnailUrl: thumbnailUrl || undefined,
     title: tab.title || tab.url || 'Untitled Tab',
     windowId: tab.windowId,
   }
@@ -696,7 +376,7 @@ function getDefaultFaviconUrl(pageUrl) {
 
   const faviconUrl = new URL(chrome.runtime.getURL('_favicon/'))
   faviconUrl.searchParams.set('pageUrl', pageUrl)
-  faviconUrl.searchParams.set('size', '32')
+  faviconUrl.searchParams.set('size', '48')
   return faviconUrl.toString()
 }
 
@@ -798,43 +478,14 @@ let meetingSyncGeneration = 0
 const requestMeetingSync = createCoalescedSyncRunner(runMeetingSync)
 
 chrome.runtime.onInstalled.addListener(() => {
-  void initializePreviousActiveTabs()
   void initializeMeetingReminder()
 })
 
 chrome.runtime.onStartup.addListener(() => {
-  void initializePreviousActiveTabs()
   void initializeMeetingReminder()
 })
 
-async function initializePreviousActiveTabs() {
-  const windows = await chrome.windows.getAll({
-    populate: true,
-    windowTypes: ['normal'],
-  })
-  for (const window of windows) {
-    if (!Number.isInteger(window.id)) {
-      continue
-    }
-
-    const activeTab = (window.tabs ?? []).find(
-      (tab) => tab.active && Number.isInteger(tab.id),
-    )
-    if (activeTab) {
-      previousActiveTabIdByWindowId.set(window.id, activeTab.id)
-    }
-  }
-}
-
 chrome.alarms.onAlarm.addListener((alarm) => {
-  const thumbnailCaptureMatch = THUMBNAIL_CAPTURE_ALARM_PATTERN.exec(alarm.name)
-  if (thumbnailCaptureMatch) {
-    const windowId = Number(thumbnailCaptureMatch[1])
-    const tabId = Number(thumbnailCaptureMatch[2])
-    void queueVisibleTabThumbnailCapture({ priority: false, tabId, windowId })
-    return
-  }
-
   if (alarm.name === MEETING_REMINDER_FETCH_ALARM) {
     void syncMeetings()
     return

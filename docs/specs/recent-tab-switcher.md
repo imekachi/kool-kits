@@ -24,20 +24,20 @@ The optional setup tip should tell users to copy the loaded Kool Kits extension 
 
 ```js
 chrome.developerPrivate.updateExtensionCommand({
-  extensionId: "PASTE_KOOL_KITS_EXTENSION_ID",
-  commandName: "recent-tab-switcher",
-  keybinding: "Ctrl+Tab"
-});
+  extensionId: 'PASTE_KOOL_KITS_EXTENSION_ID',
+  commandName: 'recent-tab-switcher',
+  keybinding: 'Ctrl+Tab',
+})
 ```
 
 Reverse cycling uses the same private updater:
 
 ```js
 chrome.developerPrivate.updateExtensionCommand({
-  extensionId: "PASTE_KOOL_KITS_EXTENSION_ID",
-  commandName: "recent-tab-switcher-previous",
-  keybinding: "Ctrl+Shift+Tab"
-});
+  extensionId: 'PASTE_KOOL_KITS_EXTENSION_ID',
+  commandName: 'recent-tab-switcher-previous',
+  keybinding: 'Ctrl+Shift+Tab',
+})
 ```
 
 This workaround is intentionally documented as unsupported Chrome internals because it may need to be repeated after reinstalling the extension, changing Chrome profiles, or other events that change the extension ID or shortcut state.
@@ -50,17 +50,11 @@ The switcher UI should be extension-owned rather than injected into the active p
 
 When a tab closes, its tab ID is removed from its window's history. When a window closes, that window's history is removed. Before rendering, the switcher should reconcile history with current Chrome tab state and drop entries that no longer exist. This prevents closed or stale tabs from appearing.
 
-The background worker also owns screenshot thumbnail state. Thumbnail entries are tied to the same tab identity and recent-history lifetime as the switcher list, so removing or evicting a tab from history also removes its thumbnail. The switcher receives an optional thumbnail URL with each tab item and renders the existing preview fallback when no thumbnail is available.
-
-Screenshot capture follows a hybrid refresh model. Each tab activation should refresh thumbnails for both sides of the switch: the tab being left and the tab becoming active. Chrome can only photograph the currently visible tab, so the background worker keeps the last successful visible capture per window and commits that image to the outgoing tab when a new tab activates. The incoming tab is captured immediately and again after a short paint delay. Activation-triggered delays must survive service worker suspension, so delayed incoming-tab captures use one-shot alarms rather than in-memory timers. Capture work should flow through one global scheduler that skips capture calls for tabs that are no longer active and spaces real captures so rapid tab cycling or multiple windows do not overwhelm Chrome's capture limits. When the switcher opens, it should refresh the currently visible source tab before creating the switcher popup, try that refresh without waiting behind rate-limit backoff or older activation captures, and preserve any still-pending activation capture for a different recent tab instead of dropping it. Cached thumbnails cover the remaining recent tabs. This keeps the current tab fresh when possible without making switcher open depend on recapturing every tab.
-
-Capture results should only be saved after confirming they still belong to the requested active tab, unchanged active-tab generation, and unchanged navigation generation. This prevents rapid tab switches, tab closes, switch-away-and-back races, or same-tab navigation races from attaching one page's screenshot to another page's history entry.
-
-Navigation invalidates a tab's previous thumbnail because an old page image should not represent a new page. A later successful capture can refill the thumbnail while the same tab remains in recent history.
+The switcher does not capture page screenshots. Tab previews use a stable black preview area with the site favicon centered inside it. The extension requests the `favicon` permission so it can resolve icons through Chrome's favicon API when a tab does not already expose `favIconUrl`. It does not request broad host access for `captureVisibleTab`.
 
 ## UI And Visual Style
 
-The switcher should feel like a lightweight browser overlay: centered, dark, rounded, and horizontal. It should show up to six tab cards. Each card contains a stable preview area plus favicon and truncated title. The selected card must be visually obvious.
+The switcher should feel like a lightweight browser overlay: centered, dark, rounded, and horizontal. It should show up to six tab cards. Each card contains a stable preview area with a centered favicon plus a truncated title beneath. The selected card must be visually obvious.
 
 The switcher window should size to the rendered tab cards instead of always reserving room for the maximum list. The browser window should hug the rendered panel so there is no separate outer gutter between the window edge and the UI; internal panel and card spacing provide the visual breathing room. The window background should match the panel background, and the panel should avoid a separate border so the popup reads as one compact surface.
 
@@ -72,15 +66,13 @@ The visual language should build from the Kool Kits logo palette:
 
 The selected state should use the yellow accent or a compatible derived tone rather than assuming the browser's theme color. The UI may expand the palette with darker and lighter tones when needed, while staying aligned with the logo.
 
-Screenshot previews are required for launch. The extension should capture and cache a compact preview when a tab is visible, keep that preview only while the tab remains part of recent history, then render that image in the card's thumbnail area when available. If a screenshot is unavailable, stale, too large to store safely, or cannot be captured for a given tab, the card renders a black preview fallback in the same thumbnail area. Favicon, title, and domain metadata should still be shown when Chrome exposes them.
+Each card's preview area stays black for recent tabs. The current active tab, always shown first, uses the same overall contrast as black with a subtle connected-green tint (the same semantic green as the online dot) and a faint green inset ring, but only while another card carries the keyboard selection. When the active tab itself is selected, the green active preview styling yields to the yellow selection state. When a favicon is available, it is centered in that area at a size proportional to the preview box. When Chrome does not expose a favicon or the favicon image fails to load, the preview shows Chrome's default favicon globe rather than a broken image. Title metadata should still be shown when Chrome exposes it.
 
 Grouped tabs remain in the same recent-history order as ordinary tabs. If group metadata is available, the UI may show a subtle group cue, but tab groups should not change ordering or selection behavior.
 
 ## Error Handling
 
-The primary action is selecting a tab. Preview capture or rendering failures must not block selection. Missing screenshots use the black fallback, and missing metadata should degrade to the best available tab label.
-
-Thumbnail storage should be session-scoped rather than persisted across browser or extension restarts. Stored previews should be downscaled or otherwise bounded before session storage so they do not retain full-page screenshots or exceed extension storage limits. If storage quota or capture rate limits are reached, the switcher should prefer dropping thumbnails over blocking tab selection.
+The primary action is selecting a tab. Missing favicons or titles must not block selection. Missing metadata should degrade to the best available tab label.
 
 If the selected tab no longer exists when the modifier key is released, the switcher should hide without activating a stale tab. If the recent list has only the active tab, the command should do nothing visible or close immediately.
 
@@ -96,22 +88,16 @@ If the selected tab no longer exists when the modifier key is released, the swit
 - Cycling wraps after the first or last visible item.
 - Releasing the modifier key activates the selected tab, unless it is already active.
 - The switcher appears as extension-owned UI instead of relying on page injection.
-- Screenshot previews are captured and shown for eligible tabs before launch.
-- Tabs without screenshots show a black preview fallback.
-- The current visible tab is refreshed when the switcher opens.
-- Recently activated tabs keep thumbnails while their history entries remain alive.
-- Thumbnails are removed when bounded recent-history eviction removes their tab entries.
-- Navigating a tab invalidates its previous thumbnail until a fresh capture succeeds.
-- Removing a tab or window from recent history removes its thumbnail.
-- Rapid tab switching, capture rate limits, storage quota limits, and capture/tab races fall back to missing thumbnails rather than stale or incorrect images.
-- Chrome pages, discarded tabs, tab groups, and pages with unavailable previews are handled without blocking switching.
+- Each card shows a black preview area with a centered favicon when one is available, or Chrome's default favicon globe when the favicon is missing or cannot load.
+- The current active tab preview is subtly highlighted so it stays distinguishable from other recent tabs.
+- Chrome pages, discarded tabs, tab groups, and tabs with missing favicons are handled without blocking switching.
 - The extension command remains remappable, with optional documentation for users who want to bind it to `Ctrl+Tab`.
 
 ## Rationale
 
 Per-window history avoids surprising focus jumps across Chrome windows and matches the expectation that each window has its own recent-tab context. Including the active tab as the first item makes reverse cycling intuitive and lets the user return to the current tab before release.
 
-An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Screenshot previews are part of the launch experience because the switcher needs visual recognition, while the black fallback keeps switching reliable on pages where Chrome cannot provide a usable thumbnail. Tying thumbnails to recent-history lifetime keeps the behavior predictable, and bounding stored previews reduces privacy and quota risk from retaining full-resolution page images.
+An extension-owned switcher is preferred over an in-page overlay because the switcher must appear regardless of the current page's injection permissions. Centered favicons inside a stable preview area give enough visual recognition without requiring broad host permissions for page screenshots. Falling back to Chrome's default favicon globe keeps tabs with missing or unreachable favicon resources visually consistent with Chrome and avoids exposing browser broken-image chrome inside the switcher.
 
 Keeping `Ctrl+Tab` as an optional setup tip preserves the desired workflow for advanced users while keeping the extension command valid and remappable for normal Chrome installs.
 

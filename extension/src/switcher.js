@@ -111,26 +111,14 @@ function createTabCard(tab, index) {
   card.role = 'option'
 
   const preview = document.createElement('div')
-  preview.className = 'switcher-preview'
+  preview.className = checkShowsActiveTabPreview(index)
+    ? 'switcher-preview switcher-preview-active-tab'
+    : 'switcher-preview'
 
-  if (tab.thumbnailUrl) {
-    const thumbnail = document.createElement('img')
-    thumbnail.alt = ''
-    thumbnail.className = 'switcher-thumbnail'
-    thumbnail.src = tab.thumbnailUrl
-    preview.append(thumbnail)
-  }
+  preview.append(createFavicon(tab.favIconUrl))
 
   const label = document.createElement('div')
   label.className = 'switcher-label'
-
-  if (tab.favIconUrl) {
-    const favicon = document.createElement('img')
-    favicon.alt = ''
-    favicon.className = 'switcher-favicon'
-    favicon.src = tab.favIconUrl
-    label.append(favicon)
-  }
 
   const text = document.createElement('div')
   text.className = 'switcher-text'
@@ -143,4 +131,30 @@ function createTabCard(tab, index) {
   label.append(text)
   card.append(preview, label)
   return card
+}
+
+function checkShowsActiveTabPreview(index) {
+  return index === 0 && index !== selectedIndex
+}
+
+function createFavicon(favIconUrl) {
+  if (!favIconUrl) {
+    return createDefaultFavicon()
+  }
+
+  const favicon = document.createElement('img')
+  favicon.alt = ''
+  favicon.className = 'switcher-favicon'
+  favicon.onerror = () => {
+    favicon.replaceWith(createDefaultFavicon())
+  }
+  favicon.src = favIconUrl
+  return favicon
+}
+
+function createDefaultFavicon() {
+  const fallback = document.createElement('div')
+  fallback.ariaHidden = 'true'
+  fallback.className = 'switcher-favicon switcher-default-favicon'
+  return fallback
 }
